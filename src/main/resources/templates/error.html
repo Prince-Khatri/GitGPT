@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error · GitGPT</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<main class="shell">
+    <section class="card">
+        <p class="eyebrow" th:text="${identified} ? 'Identified error' : 'Unidentified error'">Error</p>
+        <h1 th:text="${error} ?: 'Something went wrong'">Something went wrong</h1>
+        <p class="lede">The same message has been written to the application console.</p>
+        <p class="message-box" th:text="${message}">An unexpected error occurred.</p>
+        <dl class="meta">
+            <div>
+                <dt>Status</dt>
+                <dd th:text="${status}">500</dd>
+            </div>
+            <div>
+                <dt>Type</dt>
+                <dd th:text="${exceptionType}">Unknown</dd>
+            </div>
+            <div>
+                <dt>Path</dt>
+                <dd th:text="${path}">/</dd>
+            </div>
+        </dl>
+        <a class="secondary-button" href="/">Back to GitGPT</a>
+    </section>
+</main>
+</body>
+</html>

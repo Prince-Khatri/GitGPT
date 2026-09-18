@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ask · GitGPT</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<main class="shell home">
+    <section class="card profile">
+        <p class="eyebrow">Ask a repository</p>
+        <h1 th:text="${repo.fullName}">owner/name</h1>
+        <p class="lede">
+            Answers use the indexed snapshot
+            <span th:if="${repo.indexedSha}" th:text="|sha ${#strings.substring(repo.indexedSha, 0, 7)}|">sha</span>
+            — not a live GitHub search.
+        </p>
+        <p>
+            <a class="secondary-button index-button" th:href="@{/home}">Back to repositories</a>
+        </p>
+    </section>
+
+    <section class="card repos">
+        <form th:action="@{/repos/{repoId}/ask(repoId=${repo.repoId})}" method="post">
+            <label class="hint" for="question">Question</label>
+            <textarea id="question" name="question" rows="4" required maxlength="2000"
+                      th:text="${question}"
+                      placeholder="Where is the GitHub access token saved after login?"></textarea>
+            <button type="submit" class="github-button">Ask</button>
+        </form>
+
+        <div class="answer-block" th:if="${result != null}">
+            <p class="eyebrow">Answer</p>
+            <p class="hint" th:if="${!result.grounded}">No matching chunks were found. The model was told not to invent files.</p>
+            <p class="hint" th:if="${result.intent}" th:text="|Intent: ${result.intent}|">Intent</p>
+            <pre class="answer" th:text="${result.answer}">answer</pre>
+            <p class="eyebrow" th:if="${!result.citations.isEmpty()}">Citations</p>
+            <ul class="citation-list" th:if="${!result.citations.isEmpty()}">
+                <li th:each="citation : ${result.citations}">
+                    <span th:text="${citation.path}">path</span>
+                    <span th:text="|L${citation.startLine}-${citation.endLine}|">L1-10</span>
+                    <span class="badge" th:text="${citation.source}">VECTOR</span>
+                </li>
+            </ul>
+        </div>
+    </section>
+</main>
+</body>
+</html>
