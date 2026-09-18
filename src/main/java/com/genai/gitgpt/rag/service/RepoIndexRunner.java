@@ -1,5 +1,6 @@
 package com.genai.gitgpt.rag.service;
 
+import com.genai.gitgpt.exception.SecretRedactor;
 import com.genai.gitgpt.rag.ingest.Chunker;
 import com.genai.gitgpt.rag.ingest.CodeChunk;
 import com.genai.gitgpt.rag.ingest.EmbeddingIndexer;
@@ -54,7 +55,7 @@ public class RepoIndexRunner {
                     snapshot.files().size(), stored);
         } catch (Exception ex) {
             log.error("Index job {} failed for repo {}: {}", jobId, repo.getFullName(), ex.getMessage(), ex);
-            markFailed(job, repo, ex.getMessage());
+            markFailed(job, repo, SecretRedactor.redact(ex.getMessage()));
         }
     }
 

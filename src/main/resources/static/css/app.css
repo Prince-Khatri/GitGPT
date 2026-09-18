@@ -295,6 +295,11 @@ textarea {
     border-top: 1px solid var(--border);
 }
 
+.answer-block.is-hidden,
+.is-hidden {
+    display: none;
+}
+
 pre.answer {
     white-space: pre-wrap;
     word-break: break-word;
@@ -333,4 +338,41 @@ pre.answer {
 .index-button:disabled {
     opacity: 0.6;
     cursor: wait;
+}
+
+.card.repos.chat-card {
+    width: min(860px, 100%);
+}
+
+.chat-thread {
+    display: grid;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.chat-msg {
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+}
+
+.chat-msg.user {
+    background: rgba(240, 246, 252, 0.06);
+}
+
+.chat-msg.assistant {
+    background: rgba(63, 185, 80, 0.08);
+}
+
+.chat-role {
+    margin: 0 0 8px;
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.chat-msg .answer {
+    margin: 0;
 }

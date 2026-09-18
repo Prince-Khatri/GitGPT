@@ -4,6 +4,7 @@ import com.genai.gitgpt.exception.AppException;
 import com.genai.gitgpt.rag.config.IndexProperties;
 import com.genai.gitgpt.user.models.Repo;
 import com.genai.gitgpt.user.models.Users;
+import com.genai.gitgpt.user.security.GitHubTokenService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
@@ -38,6 +39,7 @@ public class GitHubSnapshotService {
 
     private final IndexProperties properties;
     private final SourceFileFilter fileFilter;
+    private final GitHubTokenService gitHubTokenService;
     private final RestClient restClient = RestClient.create();
     private final HttpClient httpClient = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -48,7 +50,7 @@ public class GitHubSnapshotService {
     }
 
     public Snapshot fetch(Users user, Repo repo) {
-        String token = user.getAccessToken();
+        String token = gitHubTokenService.requirePlaintext(user);
         if (token == null || token.isBlank()) {
             throw new AppException("No GitHub access token is stored, so this repository cannot be indexed.");
         }

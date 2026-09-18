@@ -16,6 +16,7 @@ import java.util.UUID;
 @Getter
 @Setter
 @Builder
+@ToString(exclude = "accessToken")
 public class Users {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -30,6 +31,7 @@ public class Users {
     private String githubUsername;
     private String urlAvatar;
 
+    /** AES-GCM ciphertext (`enc:v1:...`). Decrypt only in memory for GitHub calls. */
     @JsonIgnore
     @Column(columnDefinition = "text")
     private String accessToken;

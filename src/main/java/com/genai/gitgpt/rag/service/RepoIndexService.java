@@ -8,6 +8,7 @@ import com.genai.gitgpt.user.models.IndexStatus;
 import com.genai.gitgpt.user.models.Repo;
 import com.genai.gitgpt.user.models.Users;
 import com.genai.gitgpt.user.repository.RepoRepository;
+import com.genai.gitgpt.user.security.RateLimitService;
 import com.genai.gitgpt.user.service.RepoService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class RepoIndexService {
     private final RepoRepository repoRepository;
     private final IndexJobRepository indexJobRepository;
     private final RepoIndexRunner repoIndexRunner;
+    private final RateLimitService rateLimitService;
 
     @Transactional
     public IndexJobResponse enqueue(Users user, UUID repoId) {
@@ -36,6 +38,7 @@ public class RepoIndexService {
         if (existing != null && ACTIVE.contains(existing.getStatus())) {
             return toResponse(existing);
         }
+        rateLimitService.checkIndex(user.getUserID());
         if (indexJobRepository.existsByUserAndStatusIn(user, ACTIVE)) {
             throw new AppException("An index job is already running. Wait for it to finish before starting another.");
         }

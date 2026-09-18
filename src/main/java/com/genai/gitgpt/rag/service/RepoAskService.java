@@ -4,9 +4,11 @@ import com.genai.gitgpt.exception.AppException;
 import com.genai.gitgpt.rag.config.AskProperties;
 import com.genai.gitgpt.rag.dto.AskResponse;
 import com.genai.gitgpt.rag.dto.CitationResponse;
+import com.genai.gitgpt.rag.model.ChatSession;
 import com.genai.gitgpt.rag.retrieve.AnswerGenerator;
 import com.genai.gitgpt.rag.retrieve.CandidateFinder;
 import com.genai.gitgpt.rag.retrieve.ContextPacker;
+import com.genai.gitgpt.rag.retrieve.FollowUpQuery;
 import com.genai.gitgpt.rag.retrieve.QueryPlan;
 import com.genai.gitgpt.rag.retrieve.QueryPlanner;
 import com.genai.gitgpt.rag.retrieve.RetrievedChunk;
@@ -14,28 +16,71 @@ import com.genai.gitgpt.rag.retrieve.VectorRetriever;
 import com.genai.gitgpt.user.models.IndexStatus;
 import com.genai.gitgpt.user.models.Repo;
 import com.genai.gitgpt.user.models.Users;
+import com.genai.gitgpt.user.security.RateLimitService;
 import com.genai.gitgpt.user.service.RepoService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class RepoAskService {
 
     private final RepoService repoService;
+    private final ChatService chatService;
     private final AskProperties askProperties;
     private final QueryPlanner queryPlanner;
     private final CandidateFinder candidateFinder;
     private final VectorRetriever vectorRetriever;
     private final ContextPacker contextPacker;
     private final AnswerGenerator answerGenerator;
+    private final RateLimitService rateLimitService;
+    private final Executor retrieveExecutor;
 
-    public AskResponse ask(Users user, UUID repoId, String question) {
+    public RepoAskService(
+            RepoService repoService,
+            ChatService chatService,
+            AskProperties askProperties,
+            QueryPlanner queryPlanner,
+            CandidateFinder candidateFinder,
+            VectorRetriever vectorRetriever,
+            ContextPacker contextPacker,
+            AnswerGenerator answerGenerator,
+            RateLimitService rateLimitService,
+            @Qualifier("retrieveExecutor") Executor retrieveExecutor
+    ) {
+        this.repoService = repoService;
+        this.chatService = chatService;
+        this.askProperties = askProperties;
+        this.queryPlanner = queryPlanner;
+        this.candidateFinder = candidateFinder;
+        this.vectorRetriever = vectorRetriever;
+        this.contextPacker = contextPacker;
+        this.answerGenerator = answerGenerator;
+        this.rateLimitService = rateLimitService;
+        this.retrieveExecutor = retrieveExecutor;
+    }
+
+    public AskResponse ask(Users user, UUID repoId, String question, UUID sessionId) {
+        PreparedAsk prepared = prepare(user, repoId, question, sessionId);
+        String answer = answerGenerator.generate(
+                prepared.question(),
+                prepared.plan().intent(),
+                prepared.context(),
+                prepared.history()
+        );
+        persistAssistant(prepared, answer);
+        return toResponse(prepared, answer);
+    }
+
+    public PreparedAsk prepare(Users user, UUID repoId, String question, UUID sessionId) {
+        rateLimitService.checkAsk(user.getUserID());
         String trimmed = question == null ? "" : question.trim();
         if (trimmed.isBlank()) {
             throw new AppException("Ask a question about the indexed repository.");
@@ -49,39 +94,103 @@ public class RepoAskService {
             throw new AppException("Index this repository first. Questions run only against a READY snapshot.");
         }
 
-        QueryPlan plan = queryPlanner.plan(trimmed);
-        List<RetrievedChunk> keywords = candidateFinder.find(
-                user.getUserID(), repo.getRepoId(), repo.getIndexedSha(), plan);
-        List<RetrievedChunk> vectors = vectorRetriever.search(
-                user.getUserID(),
-                repo.getRepoId(),
-                repo.getIndexedSha(),
-                plan.rewrittenQuery(),
-                plan.pathHints()
+        ChatSession session = chatService.open(user, repo, sessionId);
+        List<AnswerGenerator.ChatTurn> history = chatService.recentTurns(session);
+        String retrievalQuestion = FollowUpQuery.forRetrieval(chatService.priorUserQuestions(session), trimmed);
+        QueryPlan plan = queryPlanner.plan(retrievalQuestion);
+        CompletableFuture<List<RetrievedChunk>> keywordFuture = CompletableFuture.supplyAsync(
+                () -> candidateFinder.find(user.getUserID(), repo.getRepoId(), repo.getIndexedSha(), plan),
+                retrieveExecutor
         );
+        CompletableFuture<List<RetrievedChunk>> vectorFuture = CompletableFuture.supplyAsync(
+                () -> vectorRetriever.search(
+                        user.getUserID(),
+                        repo.getRepoId(),
+                        repo.getIndexedSha(),
+                        plan.rewrittenQuery(),
+                        plan.pathHints()
+                ),
+                retrieveExecutor
+        );
+        List<RetrievedChunk> keywords = keywordFuture.join();
+        List<RetrievedChunk> vectors = vectorFuture.join();
         List<RetrievedChunk> packed = contextPacker.pack(keywords, vectors);
-        boolean grounded = !packed.isEmpty();
-        String context = contextPacker.format(packed);
-        String answer = answerGenerator.generate(trimmed, plan.intent(), context);
-        log.info("Ask repo {} intent={} keywords={} vectors={} packed={}",
-                repo.getFullName(), plan.intent(), keywords.size(), vectors.size(), packed.size());
-        return new AskResponse(
-                repo.getRepoId(),
-                repo.getFullName(),
+        chatService.appendUser(session, trimmed);
+        log.info("Ask repo {} session={} intent={} keywords={} vectors={} packed={} skipPlanner={}",
+                repo.getFullName(), session.getSessionId(), plan.intent(), keywords.size(), vectors.size(),
+                packed.size(), QueryPlanner.hasStrongIdentifiers(retrievalQuestion));
+        return new PreparedAsk(
+                repo,
+                session,
                 trimmed,
-                plan.intent(),
-                plan.rewrittenQuery(),
-                answer,
-                grounded,
-                packed.stream()
-                        .map(chunk -> new CitationResponse(
-                                chunk.path(),
-                                chunk.startLine(),
-                                chunk.endLine(),
-                                chunk.commitSha(),
-                                chunk.source()
-                        ))
-                        .toList()
+                plan,
+                packed,
+                !packed.isEmpty(),
+                contextPacker.format(packed),
+                history
         );
+    }
+
+    public void streamAnswer(PreparedAsk prepared, Consumer<String> onDelta) {
+        StringBuilder full = new StringBuilder();
+        answerGenerator.stream(
+                prepared.question(),
+                prepared.plan().intent(),
+                prepared.context(),
+                prepared.history(),
+                delta -> {
+                    full.append(delta);
+                    onDelta.accept(delta);
+                }
+        );
+        persistAssistant(prepared, full.toString());
+    }
+
+    public AskResponse toResponse(PreparedAsk prepared, String answer) {
+        return new AskResponse(
+                prepared.repo().getRepoId(),
+                prepared.session().getSessionId(),
+                prepared.repo().getFullName(),
+                prepared.question(),
+                prepared.plan().intent(),
+                prepared.plan().rewrittenQuery(),
+                answer,
+                prepared.grounded(),
+                citationsOf(prepared)
+        );
+    }
+
+    private void persistAssistant(PreparedAsk prepared, String answer) {
+        chatService.appendAssistant(
+                prepared.session(),
+                answer,
+                prepared.plan().intent(),
+                prepared.grounded(),
+                citationsOf(prepared)
+        );
+    }
+
+    private static List<CitationResponse> citationsOf(PreparedAsk prepared) {
+        return prepared.packed().stream()
+                .map(chunk -> new CitationResponse(
+                        chunk.path(),
+                        chunk.startLine(),
+                        chunk.endLine(),
+                        chunk.commitSha(),
+                        chunk.source()
+                ))
+                .toList();
+    }
+
+    public record PreparedAsk(
+            Repo repo,
+            ChatSession session,
+            String question,
+            QueryPlan plan,
+            List<RetrievedChunk> packed,
+            boolean grounded,
+            String context,
+            List<AnswerGenerator.ChatTurn> history
+    ) {
     }
 }

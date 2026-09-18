@@ -36,6 +36,17 @@ public class QueryPlanner {
 
     public QueryPlan plan(String question) {
         QueryPlan fallback = QueryPlan.fallback(question);
+        if (hasStrongIdentifiers(question)) {
+            log.info("Skipping query planner; using extracted identifiers");
+            return new QueryPlan(
+                    "locate",
+                    fallback.rewrittenQuery(),
+                    fallback.keywords(),
+                    fallback.pathHints(),
+                    fallback.languages(),
+                    fallback.symbolHints()
+            );
+        }
         try {
             String raw = chatModel.call(new Prompt(List.of(
                     new SystemMessage(SYSTEM),
@@ -47,6 +58,10 @@ public class QueryPlanner {
             log.warn("Query planner failed, using fallback identifiers: {}", ex.getMessage());
             return fallback;
         }
+    }
+
+    public static boolean hasStrongIdentifiers(String question) {
+        return !IdentifierExtractor.extract(question).isEmpty();
     }
 
     private QueryPlan parse(String raw, QueryPlan fallback) {

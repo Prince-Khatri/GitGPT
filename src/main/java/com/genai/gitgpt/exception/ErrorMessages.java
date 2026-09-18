@@ -15,13 +15,13 @@ public final class ErrorMessages {
             return unidentified(null);
         }
         if (ex instanceof AppException) {
-            return firstNonBlank(ex.getMessage(), unidentified(ex));
+            return SecretRedactor.redact(firstNonBlank(ex.getMessage(), unidentified(ex)));
         }
         if (ex instanceof OAuth2AuthenticationException oauthException) {
             String description = oauthException.getError() != null
                     ? oauthException.getError().getDescription()
                     : null;
-            return firstNonBlank(description, ex.getMessage(), unidentified(ex));
+            return SecretRedactor.redact(firstNonBlank(description, ex.getMessage(), unidentified(ex)));
         }
         return unidentified(ex);
     }
@@ -35,10 +35,10 @@ public final class ErrorMessages {
         Throwable root = rootCause(ex);
         if (root != null && root != ex && StringUtils.hasText(root.getMessage())
                 && !message.contains(root.getMessage())) {
-            return "Unidentified error (" + type + "): " + message
-                    + " — caused by " + root.getClass().getSimpleName() + ": " + root.getMessage();
+            return SecretRedactor.redact("Unidentified error (" + type + "): " + message
+                    + " — caused by " + root.getClass().getSimpleName() + ": " + root.getMessage());
         }
-        return "Unidentified error (" + type + "): " + message;
+        return SecretRedactor.redact("Unidentified error (" + type + "): " + message);
     }
 
     public static boolean isIdentified(Throwable ex) {

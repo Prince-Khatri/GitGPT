@@ -25,4 +25,17 @@ public class RagAsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean(name = "retrieveExecutor")
+    public Executor retrieveExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("repo-retrieve-");
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(40);
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
 }

@@ -1,10 +1,12 @@
 package com.genai.gitgpt.user.security;
 
+import com.genai.gitgpt.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
@@ -15,6 +17,8 @@ public class SecurityConfig {
     private final OAuth2AuthenticationSuccessHandler oAuth2SuccessHandler;
     private final OAuth2AuthenticationFailureHandler oAuth2FailureHandler;
     private final CustomOAuth2UserService customOAuth2UserService;
+    private final UserService userService;
+    private final GitHubTokenService gitHubTokenService;
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -32,6 +36,12 @@ public class SecurityConfig {
                 )
                 .logout(logout -> logout
                         .logoutSuccessUrl("/login?logout")
+                        .addLogoutHandler((request, response, authentication) -> {
+                            if (authentication != null && authentication.getPrincipal() instanceof OAuth2User principal) {
+                                userService.findByGithubId(OAuthAttributes.asString(principal, "id"))
+                                        .ifPresent(user -> gitHubTokenService.evict(user.getUserID()));
+                            }
+                        })
                         .invalidateHttpSession(true)
                         .clearAuthentication(true)
                         .deleteCookies("JSESSIONID")

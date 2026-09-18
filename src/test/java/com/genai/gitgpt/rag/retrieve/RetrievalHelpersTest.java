@@ -28,6 +28,24 @@ class RetrievalHelpersTest {
     }
 
     @Test
+    void skipsPlannerWhenIdentifiersArePresent() {
+        assertTrue(QueryPlanner.hasStrongIdentifiers("Where is UserService?"));
+        assertFalse(QueryPlanner.hasStrongIdentifiers("how does login work?"));
+    }
+
+    @Test
+    void followUpUsesThePreviousQuestionWhenTheLatestHasNoNames() {
+        String retrieval = FollowUpQuery.forRetrieval(
+                List.of("Where is UserService?"),
+                "where is that used?"
+        );
+        assertTrue(retrieval.contains("UserService"));
+        assertTrue(retrieval.contains("where is that used?"));
+        assertEquals("Explain the login filter", FollowUpQuery.forRetrieval(List.of(), "Explain the login filter"));
+        assertEquals("Find RepoAskService", FollowUpQuery.forRetrieval(List.of("old"), "Find RepoAskService"));
+    }
+
+    @Test
     void packerDropsOverlappingWindowsAndCapsCount() {
         AskProperties properties = new AskProperties();
         properties.setPackedChunks(2);

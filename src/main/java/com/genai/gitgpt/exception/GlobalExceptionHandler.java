@@ -16,6 +16,11 @@ import org.springframework.web.servlet.ModelAndView;
 @Slf4j
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(RateLimitException.class)
+    public Object handleRateLimit(RateLimitException ex, HttpServletRequest request) {
+        return respond(request, HttpStatus.TOO_MANY_REQUESTS, "Rate limit", ex, true);
+    }
+
     @ExceptionHandler(AppException.class)
     public Object handleAppException(AppException ex, HttpServletRequest request) {
         return respond(request, HttpStatus.BAD_REQUEST, "Application error", ex, true);

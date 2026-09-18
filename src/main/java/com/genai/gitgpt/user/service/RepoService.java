@@ -6,6 +6,7 @@ import com.genai.gitgpt.user.models.IndexStatus;
 import com.genai.gitgpt.user.models.Repo;
 import com.genai.gitgpt.user.models.Users;
 import com.genai.gitgpt.user.repository.RepoRepository;
+import com.genai.gitgpt.user.security.GitHubTokenService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
@@ -31,10 +32,12 @@ public class RepoService {
             new ParameterizedTypeReference<>() {};
 
     private final RepoRepository repoRepository;
+    private final GitHubTokenService gitHubTokenService;
     private final RestClient restClient = RestClient.create();
 
-    public RepoService(RepoRepository repoRepository) {
+    public RepoService(RepoRepository repoRepository, GitHubTokenService gitHubTokenService) {
         this.repoRepository = repoRepository;
+        this.gitHubTokenService = gitHubTokenService;
     }
 
     @Transactional
@@ -42,11 +45,12 @@ public class RepoService {
         if (user == null || user.getUserID() == null) {
             throw new AppException("A saved GitHub user is required before repositories can be loaded.");
         }
-        if (!hasText(user.getAccessToken())) {
+        String accessToken = gitHubTokenService.requirePlaintext(user);
+        if (!hasText(accessToken)) {
             throw new AppException("No GitHub access token is stored for this user, so repositories cannot be fetched.");
         }
 
-        List<Map<String, Object>> remoteRepos = fetchAllRepos(user.getAccessToken());
+        List<Map<String, Object>> remoteRepos = fetchAllRepos(accessToken);
         Set<String> seenIds = remoteRepos.stream()
                 .map(payload -> mapString(payload, "id"))
                 .filter(this::hasText)

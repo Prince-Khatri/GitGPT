@@ -3,6 +3,7 @@ package com.genai.gitgpt.user.service;
 import com.genai.gitgpt.user.models.Users;
 import com.genai.gitgpt.user.repository.UserRepository;
 import com.genai.gitgpt.exception.AppException;
+import com.genai.gitgpt.user.security.GitHubTokenService;
 import com.genai.gitgpt.user.security.OAuthAttributes;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
@@ -25,10 +26,12 @@ public class UserService {
             new ParameterizedTypeReference<>() {};
 
     private final UserRepository userRepository;
+    private final GitHubTokenService gitHubTokenService;
     private final RestClient restClient = RestClient.create();
 
-    public UserService(UserRepository userRepository) {
+    public UserService(UserRepository userRepository, GitHubTokenService gitHubTokenService) {
         this.userRepository = userRepository;
+        this.gitHubTokenService = gitHubTokenService;
     }
 
     @Transactional
@@ -52,10 +55,12 @@ public class UserService {
         user.setEmail(email);
         user.setGithubUsername(username);
         user.setUrlAvatar(avatar);
-        user.setAccessToken(accessToken);
+        gitHubTokenService.encryptInto(user, accessToken);
         user.setTokenScope(tokenScope);
         try {
-            return userRepository.save(user);
+            Users saved = userRepository.save(user);
+            gitHubTokenService.remember(saved, accessToken);
+            return saved;
         } catch (RuntimeException ex) {
             throw new AppException("Failed to save GitHub user: " + ex.getMessage(), ex);
         }
