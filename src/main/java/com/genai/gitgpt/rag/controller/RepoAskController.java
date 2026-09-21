@@ -2,7 +2,9 @@ package com.genai.gitgpt.rag.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.genai.gitgpt.exception.AppException;
+import com.genai.gitgpt.exception.GeminiErrors;
 import com.genai.gitgpt.rag.dto.AskResponse;
+import com.genai.gitgpt.rag.dto.ChatHistoryItem;
 import com.genai.gitgpt.rag.dto.ChatMessageResponse;
 import com.genai.gitgpt.rag.dto.CitationResponse;
 import com.genai.gitgpt.rag.model.ChatSession;
@@ -19,14 +21,12 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.user.OAuth2User;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.LinkedHashMap;
@@ -35,7 +35,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
-@Controller
+@RestController
 @Slf4j
 public class RepoAskController {
 
@@ -60,60 +60,33 @@ public class RepoAskController {
         this.retrieveExecutor = retrieveExecutor;
     }
 
-    @GetMapping("/repos/{repoId}")
-    public String askPage(
-            @PathVariable UUID repoId,
-            @RequestParam(value = "session", required = false) UUID sessionId,
-            @AuthenticationPrincipal OAuth2User principal,
-            Model model
-    ) {
-        Users user = currentUser(principal);
-        Repo repo = requireReady(user, repoId);
-        ChatSession session = chatService.open(user, repo, sessionId);
-        model.addAttribute("user", user);
-        model.addAttribute("repo", repo);
-        model.addAttribute("session", session);
-        model.addAttribute("messages", chatService.toResponses(session));
-        return "ask";
-    }
-
-    @PostMapping("/repos/{repoId}/ask")
-    public String askFromPage(
-            @PathVariable UUID repoId,
-            @RequestParam("question") String question,
-            @RequestParam(value = "sessionId", required = false) UUID sessionId,
-            @AuthenticationPrincipal OAuth2User principal
-    ) {
-        Users user = currentUser(principal);
-        requireReady(user, repoId);
-        AskResponse answer = repoAskService.ask(user, repoId, question, sessionId);
-        return "redirect:/repos/" + repoId + "?session=" + answer.sessionId();
-    }
-
-    @PostMapping("/repos/{repoId}/chat/new")
-    public String newChat(
+    @PostMapping("/api/repos/{repoId}/chats")
+    public ChatHistoryItem newChat(
             @PathVariable UUID repoId,
             @AuthenticationPrincipal OAuth2User principal
     ) {
         Users user = currentUser(principal);
         Repo repo = requireReady(user, repoId);
         ChatSession session = chatService.startNew(user, repo);
-        return "redirect:/repos/" + repoId + "?session=" + session.getSessionId();
+        return chatService.toHistory(session);
     }
 
-    @PostMapping(value = "/repos/{repoId}/ask/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter streamFromPage(
+    @PostMapping(value = "/api/repos/{repoId}/ask/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamFromApi(
             @PathVariable UUID repoId,
-            @RequestParam("question") String question,
-            @RequestParam(value = "sessionId", required = false) UUID sessionId,
+            @RequestBody Map<String, String> body,
             @AuthenticationPrincipal OAuth2User principal
     ) {
         Users user = currentUser(principal);
         requireReady(user, repoId);
-        SseEmitter emitter = new SseEmitter(120_000L);
+        repoAskService.checkAsk(user);
+        String question = body == null ? null : body.get("question");
+        UUID sessionId = parseUuid(body == null ? null : body.get("sessionId"));
+        SseEmitter emitter = new SseEmitter(90_000L);
+        emitter.onTimeout(() -> sendFail(emitter, "The model took too long to answer. Try again or pick a faster model in Settings."));
         retrieveExecutor.execute(() -> {
             try {
-                RepoAskService.PreparedAsk prepared = repoAskService.prepare(user, repoId, question, sessionId);
+                RepoAskService.PreparedAsk prepared = repoAskService.prepare(user, repoId, question, sessionId, false);
                 AskResponse meta = repoAskService.toResponse(prepared, "");
                 send(emitter, "meta", objectMapper.writeValueAsString(Map.of(
                         "sessionId", meta.sessionId().toString(),
@@ -132,21 +105,14 @@ public class RepoAskController {
                 send(emitter, "done", "\"ok\"");
                 emitter.complete();
             } catch (Exception ex) {
-                log.error("Streaming ask failed: {}", ex.getMessage(), ex);
-                try {
-                    String message = ex instanceof AppException ? ex.getMessage() : "Ask failed.";
-                    send(emitter, "error", objectMapper.writeValueAsString(message));
-                } catch (Exception ignored) {
-                    // emitter already dead
-                }
-                emitter.complete();
+                log.error("Streaming ask failed: {}", GeminiErrors.userMessage(ex), ex);
+                sendFail(emitter, GeminiErrors.userMessage(ex));
             }
         });
         return emitter;
     }
 
     @PostMapping(value = "/api/repos/{repoId}/ask", consumes = MediaType.APPLICATION_JSON_VALUE)
-    @ResponseBody
     public AskResponse askFromApi(
             @PathVariable UUID repoId,
             @RequestBody Map<String, String> body,
@@ -160,7 +126,6 @@ public class RepoAskController {
     }
 
     @GetMapping("/api/repos/{repoId}/chat")
-    @ResponseBody
     public Map<String, Object> chatFromApi(
             @PathVariable UUID repoId,
             @RequestParam(value = "sessionId", required = false) UUID sessionId,
@@ -181,6 +146,15 @@ public class RepoAskController {
         emitter.send(SseEmitter.event().name(name).data(json, MediaType.APPLICATION_JSON));
     }
 
+    private void sendFail(SseEmitter emitter, String message) {
+        try {
+            send(emitter, "fail", objectMapper.writeValueAsString(message));
+        } catch (Exception ignored) {
+            // emitter already dead
+        }
+        emitter.complete();
+    }
+
     private static List<Map<String, Object>> citations(List<CitationResponse> citations) {
         if (citations == null) {
             return List.of();
@@ -192,6 +166,7 @@ public class RepoAskController {
             row.put("endLine", citation.endLine());
             row.put("commitSha", citation.commitSha());
             row.put("source", citation.source());
+            row.put("githubUrl", citation.githubUrl());
             return row;
         }).toList();
     }

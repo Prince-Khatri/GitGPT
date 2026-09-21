@@ -12,6 +12,9 @@ public record IndexJobResponse(
         String commitSha,
         Integer fileCount,
         Integer chunkCount,
+        String progressStep,
+        Integer progressPercent,
+        boolean cancelRequested,
         String errorMessage,
         LocalDateTime startedAt,
         LocalDateTime finishedAt

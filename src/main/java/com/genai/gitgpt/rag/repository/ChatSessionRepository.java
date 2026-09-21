@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,4 +25,22 @@ public interface ChatSessionRepository extends JpaRepository<ChatSession, UUID> 
             where s.sessionId = :sessionId and s.user = :user
             """)
     Optional<ChatSession> findBySessionIdAndUser(@Param("sessionId") UUID sessionId, @Param("user") Users user);
+
+    @Query("""
+            select s from ChatSession s
+            join fetch s.repo
+            where s.user = :user
+            and exists (select m from ChatMessage m where m.session = s)
+            order by s.updatedAt desc
+            """)
+    List<ChatSession> findHistoryByUser(@Param("user") Users user);
+
+    @Query("""
+            select s from ChatSession s
+            join fetch s.repo
+            where s.user = :user and s.repo = :repo
+            and exists (select m from ChatMessage m where m.session = s)
+            order by s.updatedAt desc
+            """)
+    List<ChatSession> findHistoryByUserAndRepo(@Param("user") Users user, @Param("repo") Repo repo);
 }

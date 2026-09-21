@@ -43,6 +43,10 @@ public class IndexJob {
     private String commitSha;
     private Integer fileCount;
     private Integer chunkCount;
+    private String progressStep;
+    private Integer progressPercent;
+    @Builder.Default
+    private boolean cancelRequested = false;
 
     @Column(columnDefinition = "text")
     private String errorMessage;

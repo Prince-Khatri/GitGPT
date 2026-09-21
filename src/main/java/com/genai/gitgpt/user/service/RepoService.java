@@ -15,19 +15,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @Slf4j
 public class RepoService {
 
     private static final String REPOS_URL =
-            "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member";
+            "https://api.github.com/user/repos?per_page=30&sort=updated&affiliation=owner,collaborator,organization_member";
     private static final ParameterizedTypeReference<List<Map<String, Object>>> REPOS_TYPE =
             new ParameterizedTypeReference<>() {};
 
@@ -40,8 +40,16 @@ public class RepoService {
         this.gitHubTokenService = gitHubTokenService;
     }
 
+    @Transactional(readOnly = true)
+    public List<Repo> listCached(Users user) {
+        if (user == null || user.getUserID() == null) {
+            throw new AppException("A saved GitHub user is required before repositories can be loaded.");
+        }
+        return repoRepository.findByUserOrderByFullNameAsc(user);
+    }
+
     @Transactional
-    public List<Repo> syncAndList(Users user) {
+    public List<Repo> importGithubPage(Users user, int page) {
         if (user == null || user.getUserID() == null) {
             throw new AppException("A saved GitHub user is required before repositories can be loaded.");
         }
@@ -49,24 +57,16 @@ public class RepoService {
         if (!hasText(accessToken)) {
             throw new AppException("No GitHub access token is stored for this user, so repositories cannot be fetched.");
         }
-
-        List<Map<String, Object>> remoteRepos = fetchAllRepos(accessToken);
-        Set<String> seenIds = remoteRepos.stream()
-                .map(payload -> mapString(payload, "id"))
-                .filter(this::hasText)
-                .collect(Collectors.toSet());
-
+        int safePage = Math.max(1, page);
+        List<Map<String, Object>> remoteRepos = fetchRepoPage(accessToken, safePage);
+        List<Repo> imported = new ArrayList<>();
         for (Map<String, Object> payload : remoteRepos) {
-            upsert(user, payload);
+            Repo saved = upsert(user, payload);
+            if (saved != null) {
+                imported.add(saved);
+            }
         }
-
-        if (seenIds.isEmpty()) {
-            repoRepository.deleteByUser(user);
-        } else {
-            repoRepository.deleteByUserAndGithubRepoIdNotIn(user, seenIds);
-        }
-
-        return repoRepository.findByUserOrderByFullNameAsc(user);
+        return imported;
     }
 
     public Repo requireOwned(Users user, UUID repoId) {
@@ -91,22 +91,26 @@ public class RepoService {
                 repo.getLanguage(),
                 repo.getOwnerLogin(),
                 repo.isPrivateRepo(),
+                repo.getStarCount(),
+                repo.getForkCount(),
+                repo.getGithubPushedAt(),
                 repo.getIndexStatus() == null ? IndexStatus.NOT_INDEXED : repo.getIndexStatus(),
                 repo.getIndexedSha(),
                 repo.getIndexError(),
                 repo.getIndexFileCount(),
                 repo.getIndexChunkCount(),
+                repo.getIndexEmbeddingModel(),
                 repo.getIndexedAt()
         );
     }
 
-    private void upsert(Users user, Map<String, Object> payload) {
+    private Repo upsert(Users user, Map<String, Object> payload) {
         String githubRepoId = mapString(payload, "id");
         String name = mapString(payload, "name");
         String fullName = mapString(payload, "full_name");
         if (!hasText(githubRepoId) || !hasText(name) || !hasText(fullName)) {
             log.warn("Skipping GitHub repository payload that is missing id, name, or full_name");
-            return;
+            return null;
         }
 
         Repo repo = repoRepository.findByUserAndGithubRepoId(user, githubRepoId)
@@ -127,49 +131,26 @@ public class RepoService {
         repo.setLanguage(mapString(payload, "language"));
         repo.setOwnerLogin(ownerLogin(payload));
         repo.setPrivateRepo(Boolean.TRUE.equals(payload.get("private")));
-        repoRepository.save(repo);
+        repo.setStarCount(mapInt(payload, "stargazers_count"));
+        repo.setForkCount(mapInt(payload, "forks_count"));
+        repo.setGithubPushedAt(mapTime(payload, "pushed_at"));
+        return repoRepository.save(repo);
     }
 
-    private List<Map<String, Object>> fetchAllRepos(String accessToken) {
-        List<Map<String, Object>> all = new ArrayList<>();
-        String url = REPOS_URL;
+    private List<Map<String, Object>> fetchRepoPage(String accessToken, int page) {
+        String url = REPOS_URL + "&page=" + page;
         try {
-            while (url != null) {
-                ResponseEntity<List<Map<String, Object>>> response = restClient.get()
-                        .uri(url)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
-                        .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
-                        .header("X-GitHub-Api-Version", "2022-11-28")
-                        .retrieve()
-                        .toEntity(REPOS_TYPE);
-                if (response.getBody() != null) {
-                    all.addAll(response.getBody());
-                }
-                url = nextPageUrl(response.getHeaders().getFirst(HttpHeaders.LINK));
-            }
+            ResponseEntity<List<Map<String, Object>>> response = restClient.get()
+                    .uri(url)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", "2022-11-28")
+                    .retrieve()
+                    .toEntity(REPOS_TYPE);
+            return response.getBody() == null ? List.of() : response.getBody();
         } catch (Exception ex) {
             throw new AppException("Failed to fetch GitHub repositories: " + ex.getMessage(), ex);
         }
-        return all;
-    }
-
-    private String nextPageUrl(String linkHeader) {
-        if (!hasText(linkHeader)) {
-            return null;
-        }
-        for (String part : linkHeader.split(",")) {
-            String[] sections = part.split(";");
-            if (sections.length < 2) {
-                continue;
-            }
-            if (sections[1].contains("rel=\"next\"")) {
-                String url = sections[0].trim();
-                if (url.startsWith("<") && url.endsWith(">")) {
-                    return url.substring(1, url.length() - 1);
-                }
-            }
-        }
-        return null;
     }
 
     @SuppressWarnings("unchecked")
@@ -179,6 +160,33 @@ public class RepoService {
             return mapString((Map<String, Object>) ownerMap, "login");
         }
         return null;
+    }
+
+    private Integer mapInt(Map<String, Object> map, String key) {
+        Object value = map.get(key);
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private LocalDateTime mapTime(Map<String, Object> map, String key) {
+        String text = mapString(map, key);
+        if (text == null) {
+            return null;
+        }
+        try {
+            return OffsetDateTime.parse(text).toLocalDateTime();
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private String mapString(Map<String, Object> map, String key) {

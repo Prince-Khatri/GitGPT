@@ -2,19 +2,16 @@ package com.genai.gitgpt.exception;
 
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.webmvc.error.ErrorAttributes;
 import org.springframework.boot.webmvc.error.ErrorController;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.ServletWebRequest;
-import org.springframework.web.servlet.ModelAndView;
 
-@Controller
+@RestController
 @RequestMapping("/error")
 @Slf4j
 public class AppErrorController implements ErrorController {
@@ -23,20 +20,6 @@ public class AppErrorController implements ErrorController {
 
     public AppErrorController(ErrorAttributes errorAttributes) {
         this.errorAttributes = errorAttributes;
-    }
-
-    @RequestMapping(produces = MediaType.TEXT_HTML_VALUE)
-    public ModelAndView errorHtml(HttpServletRequest request, HttpServletResponse response) {
-        ErrorResponse body = build(request);
-        response.setStatus(body.status());
-        ModelAndView view = new ModelAndView("error");
-        view.addObject("status", body.status());
-        view.addObject("error", body.title());
-        view.addObject("message", body.message());
-        view.addObject("exceptionType", body.exceptionType());
-        view.addObject("identified", body.identified());
-        view.addObject("path", body.path());
-        return view;
     }
 
     @RequestMapping
@@ -78,7 +61,7 @@ public class AppErrorController implements ErrorController {
                     : ErrorMessages.unidentified(error);
         }
         if (status == HttpStatus.NOT_FOUND) {
-            return "No page was found for " + path + ".";
+            return "No resource was found for " + path + ".";
         }
         return "An unexpected error occurred, and it could not be identified. HTTP " + status.value();
     }

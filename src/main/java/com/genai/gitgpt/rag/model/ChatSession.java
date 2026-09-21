@@ -41,6 +41,8 @@ public class ChatSession {
     @Column(nullable = false)
     private String commitSha;
 
+    private String title;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
     @UpdateTimestamp

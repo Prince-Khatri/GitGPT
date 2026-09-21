@@ -8,6 +8,7 @@ import com.genai.gitgpt.user.models.IndexStatus;
 import com.genai.gitgpt.user.models.Repo;
 import com.genai.gitgpt.user.models.Users;
 import com.genai.gitgpt.user.repository.RepoRepository;
+import com.genai.gitgpt.user.gemini.GeminiKeyService;
 import com.genai.gitgpt.user.security.RateLimitService;
 import com.genai.gitgpt.user.service.RepoService;
 import lombok.RequiredArgsConstructor;
@@ -30,9 +31,11 @@ public class RepoIndexService {
     private final IndexJobRepository indexJobRepository;
     private final RepoIndexRunner repoIndexRunner;
     private final RateLimitService rateLimitService;
+    private final GeminiKeyService geminiKeyService;
 
     @Transactional
     public IndexJobResponse enqueue(Users user, UUID repoId) {
+        geminiKeyService.requireAnyKey(user);
         Repo repo = repoService.requireOwned(user, repoId);
         IndexJob existing = indexJobRepository.findTopByRepoOrderByCreatedAtDesc(repo).orElse(null);
         if (existing != null && ACTIVE.contains(existing.getStatus())) {
@@ -47,6 +50,9 @@ public class RepoIndexService {
                 .user(user)
                 .repo(repo)
                 .status(IndexStatus.QUEUED)
+                .progressStep("CLONE")
+                .progressPercent(8)
+                .cancelRequested(false)
                 .build());
         repo.setIndexStatus(IndexStatus.QUEUED);
         repo.setIndexError(null);
@@ -69,8 +75,34 @@ public class RepoIndexService {
     @Transactional(readOnly = true)
     public IndexJobResponse status(Users user, UUID repoId) {
         Repo repo = repoService.requireOwned(user, repoId);
+        return indexJobRepository.findTopByRepoOrderByCreatedAtDesc(repo)
+                .map(RepoIndexService::toResponse)
+                .orElseGet(() -> new IndexJobResponse(
+                        null,
+                        repo.getRepoId(),
+                        IndexStatus.NOT_INDEXED,
+                        null,
+                        null,
+                        null,
+                        null,
+                        0,
+                        false,
+                        null,
+                        null,
+                        null
+                ));
+    }
+
+    @Transactional
+    public IndexJobResponse cancel(Users user, UUID repoId) {
+        Repo repo = repoService.requireOwned(user, repoId);
         IndexJob job = indexJobRepository.findTopByRepoOrderByCreatedAtDesc(repo)
                 .orElseThrow(() -> new AppException("This repository has not been indexed yet."));
+        if (!ACTIVE.contains(job.getStatus())) {
+            return toResponse(job);
+        }
+        job.setCancelRequested(true);
+        indexJobRepository.saveAndFlush(job);
         return toResponse(job);
     }
 
@@ -82,6 +114,9 @@ public class RepoIndexService {
                 job.getCommitSha(),
                 job.getFileCount(),
                 job.getChunkCount(),
+                job.getProgressStep(),
+                job.getProgressPercent(),
+                job.isCancelRequested(),
                 job.getErrorMessage(),
                 job.getStartedAt(),
                 job.getFinishedAt()

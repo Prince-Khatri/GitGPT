@@ -34,6 +34,12 @@ class RetrievalHelpersTest {
     }
 
     @Test
+    void githubBlobLinkPointsAtTheExactLines() {
+        String url = GitHubLinks.blob("octo/gitgpt", "abc123", "src/UserService.java", 10, 20);
+        assertEquals("https://github.com/octo/gitgpt/blob/abc123/src/UserService.java#L10-L20", url);
+    }
+
+    @Test
     void followUpUsesThePreviousQuestionWhenTheLatestHasNoNames() {
         String retrieval = FollowUpQuery.forRetrieval(
                 List.of("Where is UserService?"),

@@ -4,8 +4,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.genai.gitgpt.exception.AppException;
 import com.genai.gitgpt.rag.config.AskProperties;
+import com.genai.gitgpt.rag.dto.ChatHistoryItem;
 import com.genai.gitgpt.rag.dto.ChatMessageResponse;
 import com.genai.gitgpt.rag.dto.CitationResponse;
+import com.genai.gitgpt.rag.retrieve.GitHubLinks;
 import com.genai.gitgpt.rag.model.ChatMessage;
 import com.genai.gitgpt.rag.model.ChatSession;
 import com.genai.gitgpt.rag.model.MessageRole;
@@ -59,8 +61,19 @@ public class ChatService {
     }
 
     @Transactional(readOnly = true)
+    public List<ChatHistoryItem> history(Users user) {
+        return sessionRepository.findHistoryByUser(user).stream().map(this::toHistory).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ChatHistoryItem> history(Users user, Repo repo) {
+        return sessionRepository.findHistoryByUserAndRepo(user, repo).stream().map(this::toHistory).toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<ChatMessageResponse> toResponses(ChatSession session) {
-        return messages(session).stream().map(this::toResponse).toList();
+        String fullName = session.getRepo() == null ? null : session.getRepo().getFullName();
+        return messages(session).stream().map(message -> toResponse(message, fullName)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -91,6 +104,9 @@ public class ChatService {
 
     @Transactional
     public ChatMessage appendUser(ChatSession session, String content) {
+        if (session.getTitle() == null || session.getTitle().isBlank()) {
+            session.setTitle(clipTitle(content));
+        }
         ChatMessage saved = messageRepository.save(ChatMessage.builder()
                 .session(session)
                 .role(MessageRole.USER)
@@ -121,14 +137,33 @@ public class ChatService {
     }
 
     public ChatMessageResponse toResponse(ChatMessage message) {
+        return toResponse(message, null);
+    }
+
+    public ChatMessageResponse toResponse(ChatMessage message, String repoFullName) {
         return new ChatMessageResponse(
                 message.getMessageId(),
                 message.getRole().name(),
                 message.getContent(),
                 message.getIntent(),
                 message.getGrounded(),
-                readCitations(message.getCitationsJson()),
+                withGithubUrls(readCitations(message.getCitationsJson()), repoFullName),
                 message.getCreatedAt()
+        );
+    }
+
+    public ChatHistoryItem toHistory(ChatSession session) {
+        String title = session.getTitle();
+        if (title == null || title.isBlank()) {
+            title = "Conversation";
+        }
+        return new ChatHistoryItem(
+                session.getSessionId(),
+                session.getRepo().getRepoId(),
+                session.getRepo().getFullName(),
+                title,
+                session.getCommitSha(),
+                session.getUpdatedAt()
         );
     }
 
@@ -143,6 +178,30 @@ public class ChatService {
     private void touch(ChatSession session) {
         session.setUpdatedAt(LocalDateTime.now());
         sessionRepository.save(session);
+    }
+
+    private List<CitationResponse> withGithubUrls(List<CitationResponse> citations, String fullName) {
+        return citations.stream().map(citation -> {
+            if (citation.githubUrl() != null && !citation.githubUrl().isBlank()) {
+                return citation;
+            }
+            return new CitationResponse(
+                    citation.path(),
+                    citation.startLine(),
+                    citation.endLine(),
+                    citation.commitSha(),
+                    citation.source(),
+                    GitHubLinks.blob(fullName, citation.commitSha(), citation.path(), citation.startLine(), citation.endLine())
+            );
+        }).toList();
+    }
+
+    private String clipTitle(String content) {
+        if (content == null) {
+            return "Conversation";
+        }
+        String trimmed = content.trim().replaceAll("\\s+", " ");
+        return trimmed.length() <= 80 ? trimmed : trimmed.substring(0, 80);
     }
 
     private String clip(String content) {

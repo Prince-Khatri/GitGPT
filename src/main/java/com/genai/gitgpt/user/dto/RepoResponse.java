@@ -17,11 +17,15 @@ public record RepoResponse(
         String language,
         String ownerLogin,
         boolean privateRepo,
+        Integer starCount,
+        Integer forkCount,
+        LocalDateTime githubPushedAt,
         IndexStatus indexStatus,
         String indexedSha,
         String indexError,
         Integer indexFileCount,
         Integer indexChunkCount,
+        String indexEmbeddingModel,
         LocalDateTime indexedAt
 ) {
 }

@@ -5,7 +5,7 @@ GitGPT lets you sign in with GitHub, pick **one repository**, index it, and ask 
 ## What it does
 
 1. **GitHub login** — OAuth with `read:user`, `user:email`, and `repo`.
-2. **Repo list** — `/home` syncs repositories you can access. Listing does **not** embed anything.
+2. **Repo list** — the React home page loads cached repos immediately, then one GitHub page at a time. Listing does **not** embed anything.
 3. **Index** — you choose a repo. An async job snapshots the default branch (commit SHA), filters files, chunks them, and stores embeddings in Postgres/pgvector.
 4. **Ask** — only when status is `READY`. Retrieval is: optional query plan → keyword/path candidates ∥ vector search (scoped to you + that repo + SHA) → pack a few chunks → Gemini. The page is a persisted thread: each turn retrieves again; history is only for follow-ups. The answer streams over SSE.
 
@@ -13,7 +13,8 @@ Index status: `NOT_INDEXED` → `QUEUED` → `RUNNING` → `READY` | `FAILED`.
 
 ## Stack
 
-- Java 17, Spring Boot 4.1, Thymeleaf, Spring Security OAuth2
+- Java 17, Spring Boot 4.1, Spring Security OAuth2 (API only)
+- React + Vite UI in `frontend/`
 - PostgreSQL + [pgvector](https://github.com/pgvector/pgvector)
 - Spring AI 2 with Google Gemini (`gemini-3.5-flash-lite` chat, `gemini-embedding-001` at 1536 dimensions)
 
@@ -27,9 +28,9 @@ Packages:
 - JDK 17+
 - PostgreSQL with the `vector` extension enabled in your schema
 - A [GitHub OAuth App](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app)
-  - Homepage URL: `http://localhost:8080`
-  - Authorization callback URL: `http://localhost:8080/login/oauth2/code/github`
-- A [Google AI Studio](https://aistudio.google.com/apikey) API key
+  - Homepage URL: `http://localhost:5173`
+  - Authorization callback URL: `http://localhost:5173/login/oauth2/code/github`
+- A [Google AI Studio](https://aistudio.google.com/apikey) API key (each signed-in user adds their own in Settings; `GOOGLE_API_KEY` is an optional server fallback)
 
 Create the schema (example) and extension:
 
@@ -50,7 +51,7 @@ Set these environment variables (no secrets in the repo):
 | `DB_SCHEMA` | Schema for JPA and pgvector |
 | `DB_USERNAME` | Database user |
 | `DB_PASSWORD` | Database password |
-| `GOOGLE_API_KEY` | Gemini API key |
+| `GOOGLE_API_KEY` | Optional server Gemini key. If unset, each user must add their own key in Settings. |
 | `GITHUB_CLIENT_ID` | GitHub OAuth client id |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth client secret |
 | `GITGPT_TOKEN_ENCRYPTION_KEY` | Token encryption key. Local fallback is `gitgpt-local-dev-only-not-for-prod`. Best for real use: `openssl rand -base64 32`. |
@@ -63,7 +64,17 @@ Index caps (see `application.properties`): at most 400 files, 256 KB per file, 8
 ./mvnw spring-boot:run
 ```
 
-Open [http://localhost:8080](http://localhost:8080), sign in with GitHub, index a **small** repo first, wait until `READY`, then **Ask**.
+In another terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173). The API is [http://localhost:8080](http://localhost:8080). Vite proxies `/api`, `/oauth2`, `/login`, and `/logout` so the session cookie stays on the UI origin.
+
+**Change the GitHub OAuth callback** from `:8080` to `http://localhost:5173/login/oauth2/code/github`. After login, Spring redirects to `/home` on the React app.
 
 ```bash
 ./mvnw test
@@ -74,29 +85,34 @@ Open [http://localhost:8080](http://localhost:8080), sign in with GitHub, index 
 1. If the question already contains identifiers (`UserService`, `Foo.java`), skip the LLM planner.
 2. Keyword/path search and vector search run **in parallel**, filtered by `userId`, `repoId`, and `commitSha`.
 3. Overlapping windows are dropped; about 5 chunks are sent to the model.
-4. The UI streams tokens (`POST /repos/{repoId}/ask/stream`). Citations come from retrieval, not from guessing.
+4. The UI streams tokens (`POST /api/repos/{repoId}/ask/stream`). Citations come from retrieval, not from guessing.
 5. Follow-ups stay in the same `(user, repo, snapshot)` session. Retrieval still runs every turn.
 
 The model is instructed to answer only from those chunks.
 
-## HTTP
+## HTTP (API)
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/` `/login` `/home` | Pages |
-| POST | `/repos/{repoId}/index` | Queue an index job |
-| GET | `/repos/{repoId}` | Chat page (READY only) |
-| POST | `/repos/{repoId}/ask/stream` | SSE answer (`sessionId` optional) |
-| POST | `/repos/{repoId}/chat/new` | Start a new thread |
-| GET | `/api/me` | Current user |
-| GET | `/api/repos` | Sync + list repos |
-| GET/POST | `/api/repos/{repoId}/index` | Index status / start |
-| POST | `/api/repos/{repoId}/ask` | JSON `{ "question": "...", "sessionId": "..." }` |
+| GET | `/guide` | React how-it-works guide (frontend) |
+| GET | `/api/me` | Current user + Gemini key/model flags |
+| GET/PUT/DELETE | `/api/me/gemini` | Encrypted Gemini key + chat/embedding model |
+| GET | `/api/csrf` | CSRF cookie token |
+| GET | `/api/repos` | Cached repos only (fast) |
+| GET | `/api/repos/github?page=` | One GitHub page |
+| GET | `/api/repos/{repoId}` | One repo |
+| GET | `/api/chats` | Past conversations |
+| GET | `/api/repos/{repoId}/chats` | Threads for one repo |
+| POST | `/api/repos/{repoId}/chats` | New thread |
+| GET/POST | `/api/repos/{repoId}/index` | Status / start |
+| POST | `/api/repos/{repoId}/ask` | JSON ask |
+| POST | `/api/repos/{repoId}/ask/stream` | SSE ask |
 | GET | `/api/repos/{repoId}/chat` | Thread messages |
 
 ## Limits (current)
 
-- GitHub access tokens are AES-GCM encrypted at rest. Decrypt only in memory for GitHub calls (short-lived in-process cache).
+- GitHub access tokens and user Gemini API keys are AES-GCM encrypted at rest. Decrypt only in memory (short-lived in-process cache). Never log keys.
+- Users pick a Gemini chat model and embedding model. Embeddings stay at 1536 dimensions; re-index after changing the embedding model.
 - Index and Ask are rate-limited. One active index job per user.
 - Follow-up chat is persisted per snapshot. Re-index (new SHA) starts a new thread.
 - No incremental re-index, webhooks, or multi-repo questions.

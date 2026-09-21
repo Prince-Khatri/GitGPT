@@ -1,34 +1,35 @@
 package com.genai.gitgpt.user.security;
 
 import com.genai.gitgpt.exception.ErrorMessages;
-import jakarta.servlet.ServletException;
+import com.genai.gitgpt.user.config.UiProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.web.authentication.SimpleUrlAuthenticationFailureHandler;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 @Component
+@RequiredArgsConstructor
 @Slf4j
-public class OAuth2AuthenticationFailureHandler extends SimpleUrlAuthenticationFailureHandler {
+public class OAuth2AuthenticationFailureHandler implements AuthenticationFailureHandler {
 
-    public OAuth2AuthenticationFailureHandler() {
-        setDefaultFailureUrl("/login?error");
-        setAllowSessionCreation(true);
-    }
+    private final UiProperties uiProperties;
 
     @Override
     public void onAuthenticationFailure(
             HttpServletRequest request,
             HttpServletResponse response,
             AuthenticationException exception
-    ) throws IOException, ServletException {
+    ) throws IOException {
         String message = ErrorMessages.from(exception);
-        request.getSession(true).setAttribute(ErrorMessages.SESSION_KEY, message);
         log.error("GitHub OAuth login failed: {}", message, exception);
-        super.onAuthenticationFailure(request, response, exception);
+        String encoded = URLEncoder.encode(message, StandardCharsets.UTF_8);
+        response.sendRedirect(uiProperties.frontendUrl("/?error=" + encoded));
     }
 }

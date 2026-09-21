@@ -1,6 +1,5 @@
 package com.genai.gitgpt.rag.retrieve;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -9,11 +8,11 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.function.Consumer;
 
 @Service
-@RequiredArgsConstructor
 public class AnswerGenerator {
 
     private static final String SYSTEM = """
@@ -26,13 +25,18 @@ public class AnswerGenerator {
             Never mention, quote, or request access tokens or secrets.
             """;
 
-    private final ChatModel chatModel;
-
-    public String generate(String question, String intent, String packedContext, List<ChatTurn> history) {
+    public String generate(
+            ChatModel chatModel,
+            String question,
+            String intent,
+            String packedContext,
+            List<ChatTurn> history
+    ) {
         return chatModel.call(prompt(question, intent, packedContext, history)).getResult().getOutput().getText();
     }
 
     public void stream(
+            ChatModel chatModel,
             String question,
             String intent,
             String packedContext,
@@ -45,7 +49,7 @@ public class AnswerGenerator {
             if (text != null && !text.isEmpty()) {
                 onDelta.accept(text);
             }
-        }).blockLast();
+        }).blockLast(Duration.ofSeconds(90));
     }
 
     private static Prompt prompt(String question, String intent, String packedContext, List<ChatTurn> history) {

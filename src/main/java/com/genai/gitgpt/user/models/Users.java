@@ -2,7 +2,12 @@ package com.genai.gitgpt.user.models;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -16,7 +21,7 @@ import java.util.UUID;
 @Getter
 @Setter
 @Builder
-@ToString(exclude = "accessToken")
+@ToString(exclude = {"accessToken", "geminiApiKey"})
 public class Users {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -31,10 +36,21 @@ public class Users {
     private String githubUsername;
     private String urlAvatar;
 
-    /** AES-GCM ciphertext (`enc:v1:...`). Decrypt only in memory for GitHub calls. */
+    /** AES-GCM ciphertext (`enc:v2:...`). Decrypt only in memory for GitHub calls. */
     @JsonIgnore
     @Column(columnDefinition = "text")
     private String accessToken;
+
+    /** AES-GCM ciphertext (`enc:v2:...`). Decrypt only in memory for Gemini calls. */
+    @JsonIgnore
+    @Column(columnDefinition = "text")
+    private String geminiApiKey;
+
+    /** Last four characters only. Never the full key. */
+    private String geminiApiKeyHint;
+
+    private String chatModel;
+    private String embeddingModel;
 
     private String tokenScope;
 

@@ -7,6 +7,10 @@ public record UserResponse(
         String githubId,
         String email,
         String githubUsername,
-        String urlAvatar
+        String urlAvatar,
+        boolean hasGeminiKey,
+        boolean hasServerGeminiKey,
+        String chatModel,
+        String embeddingModel
 ) {
 }

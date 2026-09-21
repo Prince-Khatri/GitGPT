@@ -10,11 +10,19 @@ class SecretRedactorTest {
     @Test
     void redactsGithubTokensAndCiphertext() {
         String redacted = SecretRedactor.redact(
-                "Bearer ghp_abcdefghijklmnopqrstuvwxyz123456 and enc:v1:abcd+/== leftover"
+                "Bearer ghp_abcdefghijklmnopqrstuvwxyz123456 and enc:v2:abcd+/== leftover"
         );
         assertFalse(redacted.contains("ghp_"));
-        assertFalse(redacted.contains("enc:v1:"));
+        assertFalse(redacted.contains("enc:v2:"));
         assertEquals("[redacted] and [redacted] leftover", redacted);
+        assertFalse(SecretRedactor.redact("enc:v1:abcd+/==").contains("enc:v1:"));
+    }
+
+    @Test
+    void redactsGeminiApiKeys() {
+        String redacted = SecretRedactor.redact("key=AIzaSyA-this-is-a-fake-gemini-key-value");
+        assertFalse(redacted.contains("AIza"));
+        assertEquals("key=[redacted]", redacted);
     }
 
     @Test

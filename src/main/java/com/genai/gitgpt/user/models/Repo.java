@@ -48,6 +48,10 @@ public class Repo {
     @Column(name = "is_private")
     private boolean privateRepo;
 
+    private Integer starCount;
+    private Integer forkCount;
+    private LocalDateTime githubPushedAt;
+
     @Enumerated(EnumType.STRING)
     @Builder.Default
     private IndexStatus indexStatus = IndexStatus.NOT_INDEXED;
@@ -59,6 +63,7 @@ public class Repo {
 
     private Integer indexFileCount;
     private Integer indexChunkCount;
+    private String indexEmbeddingModel;
     private LocalDateTime indexedAt;
 
     @CreationTimestamp

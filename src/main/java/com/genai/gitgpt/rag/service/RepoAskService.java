@@ -1,6 +1,7 @@
 package com.genai.gitgpt.rag.service;
 
 import com.genai.gitgpt.exception.AppException;
+import com.genai.gitgpt.exception.GeminiErrors;
 import com.genai.gitgpt.rag.config.AskProperties;
 import com.genai.gitgpt.rag.dto.AskResponse;
 import com.genai.gitgpt.rag.dto.CitationResponse;
@@ -9,10 +10,12 @@ import com.genai.gitgpt.rag.retrieve.AnswerGenerator;
 import com.genai.gitgpt.rag.retrieve.CandidateFinder;
 import com.genai.gitgpt.rag.retrieve.ContextPacker;
 import com.genai.gitgpt.rag.retrieve.FollowUpQuery;
+import com.genai.gitgpt.rag.retrieve.GitHubLinks;
 import com.genai.gitgpt.rag.retrieve.QueryPlan;
 import com.genai.gitgpt.rag.retrieve.QueryPlanner;
 import com.genai.gitgpt.rag.retrieve.RetrievedChunk;
 import com.genai.gitgpt.rag.retrieve.VectorRetriever;
+import com.genai.gitgpt.rag.gemini.GeminiRuntime;
 import com.genai.gitgpt.user.models.IndexStatus;
 import com.genai.gitgpt.user.models.Repo;
 import com.genai.gitgpt.user.models.Users;
@@ -40,6 +43,7 @@ public class RepoAskService {
     private final VectorRetriever vectorRetriever;
     private final ContextPacker contextPacker;
     private final AnswerGenerator answerGenerator;
+    private final GeminiRuntime geminiRuntime;
     private final RateLimitService rateLimitService;
     private final Executor retrieveExecutor;
 
@@ -52,6 +56,7 @@ public class RepoAskService {
             VectorRetriever vectorRetriever,
             ContextPacker contextPacker,
             AnswerGenerator answerGenerator,
+            GeminiRuntime geminiRuntime,
             RateLimitService rateLimitService,
             @Qualifier("retrieveExecutor") Executor retrieveExecutor
     ) {
@@ -63,24 +68,41 @@ public class RepoAskService {
         this.vectorRetriever = vectorRetriever;
         this.contextPacker = contextPacker;
         this.answerGenerator = answerGenerator;
+        this.geminiRuntime = geminiRuntime;
         this.rateLimitService = rateLimitService;
         this.retrieveExecutor = retrieveExecutor;
     }
 
     public AskResponse ask(Users user, UUID repoId, String question, UUID sessionId) {
         PreparedAsk prepared = prepare(user, repoId, question, sessionId);
-        String answer = answerGenerator.generate(
-                prepared.question(),
-                prepared.plan().intent(),
-                prepared.context(),
-                prepared.history()
-        );
+        String answer;
+        try {
+            answer = answerGenerator.generate(
+                    prepared.ai().chatModel(),
+                    prepared.question(),
+                    prepared.plan().intent(),
+                    prepared.context(),
+                    prepared.history()
+            );
+        } catch (Exception ex) {
+            throw GeminiErrors.wrap(ex);
+        }
         persistAssistant(prepared, answer);
         return toResponse(prepared, answer);
     }
 
-    public PreparedAsk prepare(Users user, UUID repoId, String question, UUID sessionId) {
+    public void checkAsk(Users user) {
         rateLimitService.checkAsk(user.getUserID());
+    }
+
+    public PreparedAsk prepare(Users user, UUID repoId, String question, UUID sessionId) {
+        return prepare(user, repoId, question, sessionId, true);
+    }
+
+    public PreparedAsk prepare(Users user, UUID repoId, String question, UUID sessionId, boolean enforceLimit) {
+        if (enforceLimit) {
+            rateLimitService.checkAsk(user.getUserID());
+        }
         String trimmed = question == null ? "" : question.trim();
         if (trimmed.isBlank()) {
             throw new AppException("Ask a question about the indexed repository.");
@@ -94,16 +116,23 @@ public class RepoAskService {
             throw new AppException("Index this repository first. Questions run only against a READY snapshot.");
         }
 
+        GeminiRuntime.UserAiSession ai = geminiRuntime.forUser(user);
         ChatSession session = chatService.open(user, repo, sessionId);
         List<AnswerGenerator.ChatTurn> history = chatService.recentTurns(session);
         String retrievalQuestion = FollowUpQuery.forRetrieval(chatService.priorUserQuestions(session), trimmed);
-        QueryPlan plan = queryPlanner.plan(retrievalQuestion);
+        QueryPlan plan;
+        try {
+            plan = queryPlanner.plan(retrievalQuestion, ai.chatModel());
+        } catch (Exception ex) {
+            throw GeminiErrors.wrap(ex);
+        }
         CompletableFuture<List<RetrievedChunk>> keywordFuture = CompletableFuture.supplyAsync(
                 () -> candidateFinder.find(user.getUserID(), repo.getRepoId(), repo.getIndexedSha(), plan),
                 retrieveExecutor
         );
         CompletableFuture<List<RetrievedChunk>> vectorFuture = CompletableFuture.supplyAsync(
                 () -> vectorRetriever.search(
+                        ai.vectorStore(),
                         user.getUserID(),
                         repo.getRepoId(),
                         repo.getIndexedSha(),
@@ -127,22 +156,28 @@ public class RepoAskService {
                 packed,
                 !packed.isEmpty(),
                 contextPacker.format(packed),
-                history
+                history,
+                ai
         );
     }
 
     public void streamAnswer(PreparedAsk prepared, Consumer<String> onDelta) {
         StringBuilder full = new StringBuilder();
-        answerGenerator.stream(
-                prepared.question(),
-                prepared.plan().intent(),
-                prepared.context(),
-                prepared.history(),
-                delta -> {
-                    full.append(delta);
-                    onDelta.accept(delta);
-                }
-        );
+        try {
+            answerGenerator.stream(
+                    prepared.ai().chatModel(),
+                    prepared.question(),
+                    prepared.plan().intent(),
+                    prepared.context(),
+                    prepared.history(),
+                    delta -> {
+                        full.append(delta);
+                        onDelta.accept(delta);
+                    }
+            );
+        } catch (Exception ex) {
+            throw GeminiErrors.wrap(ex);
+        }
         persistAssistant(prepared, full.toString());
     }
 
@@ -177,7 +212,14 @@ public class RepoAskService {
                         chunk.startLine(),
                         chunk.endLine(),
                         chunk.commitSha(),
-                        chunk.source()
+                        chunk.source(),
+                        GitHubLinks.blob(
+                                prepared.repo().getFullName(),
+                                chunk.commitSha(),
+                                chunk.path(),
+                                chunk.startLine(),
+                                chunk.endLine()
+                        )
                 ))
                 .toList();
     }
@@ -190,7 +232,8 @@ public class RepoAskService {
             List<RetrievedChunk> packed,
             boolean grounded,
             String context,
-            List<AnswerGenerator.ChatTurn> history
+            List<AnswerGenerator.ChatTurn> history,
+            GeminiRuntime.UserAiSession ai
     ) {
     }
 }

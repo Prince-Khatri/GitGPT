@@ -2,7 +2,7 @@ package com.genai.gitgpt.rag.retrieve;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import com.genai.gitgpt.exception.GeminiErrors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.Locale;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class QueryPlanner {
 
@@ -31,10 +30,9 @@ public class QueryPlanner {
             Do not answer the question. Do not invent repo files. No markdown.
             """;
 
-    private final ChatModel chatModel;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public QueryPlan plan(String question) {
+    public QueryPlan plan(String question, ChatModel chatModel) {
         QueryPlan fallback = QueryPlan.fallback(question);
         if (hasStrongIdentifiers(question)) {
             log.info("Skipping query planner; using extracted identifiers");
@@ -55,6 +53,9 @@ public class QueryPlanner {
             QueryPlan parsed = parse(raw, fallback);
             return merge(parsed, fallback);
         } catch (Exception ex) {
+            if (GeminiErrors.isRateLimit(ex)) {
+                throw GeminiErrors.wrap(ex);
+            }
             log.warn("Query planner failed, using fallback identifiers: {}", ex.getMessage());
             return fallback;
         }

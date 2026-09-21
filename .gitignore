@@ -33,3 +33,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### React UI ###
+frontend/node_modules/
+frontend/dist/

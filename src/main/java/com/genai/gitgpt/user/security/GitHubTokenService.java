@@ -33,7 +33,7 @@ public class GitHubTokenService {
     }
 
     public void encryptInto(Users user, String plaintext) {
-        user.setAccessToken(tokenCipher.encrypt(plaintext));
+        user.setAccessToken(tokenCipher.encrypt(plaintext, user));
         remember(user, plaintext);
     }
 
@@ -60,9 +60,9 @@ public class GitHubTokenService {
             }
         }
         String stored = user.getAccessToken();
-        String plaintext = tokenCipher.decrypt(stored);
-        if (!tokenCipher.isEncrypted(stored) && user.getUserID() != null) {
-            user.setAccessToken(tokenCipher.encrypt(plaintext));
+        String plaintext = tokenCipher.decrypt(stored, user, TokenCipher.PURPOSE_GITHUB);
+        if (!tokenCipher.isBound(stored) && user.getUserID() != null) {
+            user.setAccessToken(tokenCipher.encrypt(plaintext, user));
             userRepository.save(user);
         }
         remember(user, plaintext);

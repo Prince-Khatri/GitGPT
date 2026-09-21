@@ -23,6 +23,17 @@ public class VectorRetriever {
     private final AskProperties askProperties;
 
     public List<RetrievedChunk> search(UUID userId, UUID repoId, String commitSha, String query, List<String> pathHints) {
+        return search(vectorStore, userId, repoId, commitSha, query, pathHints);
+    }
+
+    public List<RetrievedChunk> search(
+            VectorStore store,
+            UUID userId,
+            UUID repoId,
+            String commitSha,
+            String query,
+            List<String> pathHints
+    ) {
         if (query == null || query.isBlank()) {
             return List.of();
         }
@@ -35,7 +46,7 @@ public class VectorRetriever {
                 ? tenant
                 : builder.and(tenant, builder.eq("commitSha", commitSha));
         try {
-            List<Document> documents = vectorStore.similaritySearch(SearchRequest.builder()
+            List<Document> documents = store.similaritySearch(SearchRequest.builder()
                     .query(query)
                     .topK(askProperties.getVectorTopK())
                     .filterExpression(filter.build())

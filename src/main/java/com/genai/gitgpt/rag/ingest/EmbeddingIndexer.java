@@ -23,7 +23,11 @@ public class EmbeddingIndexer {
     private final IndexProperties properties;
 
     public int upsert(UUID userId, UUID repoId, String commitSha, List<CodeChunk> chunks) {
-        deleteRepoChunks(userId, repoId);
+        return upsert(vectorStore, userId, repoId, commitSha, chunks);
+    }
+
+    public int upsert(VectorStore store, UUID userId, UUID repoId, String commitSha, List<CodeChunk> chunks) {
+        deleteRepoChunks(store, userId, repoId);
         if (chunks.isEmpty()) {
             return 0;
         }
@@ -33,25 +37,25 @@ public class EmbeddingIndexer {
         int batchSize = Math.max(1, properties.getEmbedBatchSize());
         for (int i = 0; i < documents.size(); i += batchSize) {
             List<Document> batch = documents.subList(i, Math.min(documents.size(), i + batchSize));
-            addWithRetry(batch, userId, repoId);
+            addWithRetry(store, batch, userId, repoId);
         }
         return documents.size();
     }
 
-    private void deleteRepoChunks(UUID userId, UUID repoId) {
+    private void deleteRepoChunks(VectorStore store, UUID userId, UUID repoId) {
         String filter = "userId == '" + userId + "' && repoId == '" + repoId + "'";
         try {
-            vectorStore.delete(filter);
+            store.delete(filter);
         } catch (Exception ex) {
             log.warn("Could not delete existing vectors for repo {}: {}", repoId, ex.getMessage());
         }
     }
 
-    private void addWithRetry(List<Document> batch, UUID userId, UUID repoId) {
+    private void addWithRetry(VectorStore store, List<Document> batch, UUID userId, UUID repoId) {
         int attempts = Math.max(1, properties.getEmbedMaxAttempts());
         for (int attempt = 1; attempt <= attempts; attempt++) {
             try {
-                vectorStore.add(new ArrayList<>(batch));
+                store.add(new ArrayList<>(batch));
                 return;
             } catch (Exception ex) {
                 if (attempt == attempts || !retryable(ex)) {
