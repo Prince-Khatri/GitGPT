@@ -20,7 +20,7 @@ public class GeminiBootConfig {
     @Bean
     @ConditionalOnMissingBean(Client.class)
     Client googleGenAiClient(@Value("${spring.ai.google.genai.api-key:}") String apiKey) {
-        return Client.builder().apiKey(resolve(apiKey)).build();
+        return Client.builder().apiKey(resolve(apiKey)).vertexAI(false).build();
     }
 
     @Bean
@@ -28,7 +28,11 @@ public class GeminiBootConfig {
     GoogleGenAiEmbeddingConnectionDetails googleGenAiEmbeddingConnectionDetails(
             @Value("${spring.ai.google.genai.embedding.api-key:${spring.ai.google.genai.api-key:}}") String apiKey
     ) {
-        return GoogleGenAiEmbeddingConnectionDetails.builder().apiKey(resolve(apiKey)).build();
+        String resolved = resolve(apiKey);
+        return GoogleGenAiEmbeddingConnectionDetails.builder()
+                .apiKey(resolved)
+                .genAiClient(Client.builder().apiKey(resolved).vertexAI(false).build())
+                .build();
     }
 
     private static String resolve(String apiKey) {

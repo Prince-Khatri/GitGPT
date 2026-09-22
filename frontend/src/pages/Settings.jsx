@@ -107,7 +107,7 @@ export default function Settings() {
     }
 
     const indexedCount = repos.filter((repo) => repo.indexStatus === 'READY').length;
-    const canIndex = settings.hasUserKey || settings.hasServerFallback;
+    const canIndex = settings.hasUserKey;
 
     return (
         <div className="hm">
@@ -183,7 +183,7 @@ export default function Settings() {
                                 <h2>Your setup</h2>
                                 <p>No plans or usage caps inside GitGPT.</p>
                                 <ul className="st-facts">
-                                    <li><span>Gemini key</span><b>{settings.hasUserKey ? 'Saved' : canIndex ? 'Server fallback' : 'Missing'}</b></li>
+                                    <li><span>Gemini key</span><b>{settings.hasUserKey ? 'Saved' : 'Missing'}</b></li>
                                     <li><span>Answer model</span><b>{settings.chatModel}</b></li>
                                     <li><span>Embedding model</span><b>{settings.embeddingModel}</b></li>
                                     <li><span>Indexed repos</span><b>{indexedCount}</b></li>

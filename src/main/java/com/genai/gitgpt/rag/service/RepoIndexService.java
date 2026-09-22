@@ -35,7 +35,7 @@ public class RepoIndexService {
 
     @Transactional
     public IndexJobResponse enqueue(Users user, UUID repoId) {
-        geminiKeyService.requireAnyKey(user);
+        geminiKeyService.requireUserKey(user);
         Repo repo = repoService.requireOwned(user, repoId);
         IndexJob existing = indexJobRepository.findTopByRepoOrderByCreatedAtDesc(repo).orElse(null);
         if (existing != null && ACTIVE.contains(existing.getStatus())) {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { githubLoginUrl } from '../config.js';
 
 const STEPS = [
     {
@@ -47,7 +48,7 @@ export default function Guide() {
                     <Link to="/">Home</Link>
                     <Link to="/guide">How it works</Link>
                 </nav>
-                <a className="lp-signin" href="/oauth2/authorization/github">Sign in with GitHub</a>
+                <a className="lp-signin" href={githubLoginUrl()}>Sign in with GitHub</a>
             </header>
 
             <main className="gd-hero">
@@ -134,7 +135,7 @@ export default function Guide() {
             </section>
 
             <div className="gd-cta">
-                <a className="lp-cta" href="/oauth2/authorization/github">Start with GitHub</a>
+                <a className="lp-cta" href={githubLoginUrl()}>Start with GitHub</a>
                 <Link className="lp-signin" to="/">Back to home</Link>
             </div>
         </div>

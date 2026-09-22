@@ -1,6 +1,7 @@
 package com.genai.gitgpt.user.security;
 
 import com.genai.gitgpt.rag.gemini.GeminiRuntime;
+import com.genai.gitgpt.user.config.SecurityProperties;
 import com.genai.gitgpt.user.config.UiProperties;
 import com.genai.gitgpt.user.gemini.GeminiKeyService;
 import com.genai.gitgpt.user.service.UserService;
@@ -35,11 +36,16 @@ public class SecurityConfig {
     private final GeminiKeyService geminiKeyService;
     private final GeminiRuntime geminiRuntime;
     private final UiProperties uiProperties;
+    private final SecurityProperties securityProperties;
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         CookieCsrfTokenRepository csrfTokens = CookieCsrfTokenRepository.withHttpOnlyFalse();
-        csrfTokens.setCookiePath("/");
+        csrfTokens.setCookieCustomizer(cookie -> {
+            cookie.path("/");
+            cookie.sameSite(securityProperties.getCookieSameSite());
+            cookie.secure(securityProperties.isCookieSecure());
+        });
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
 
         http
@@ -49,7 +55,7 @@ public class SecurityConfig {
                         .csrfTokenRequestHandler(csrfHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/oauth2/**", "/login/oauth2/**", "/error").permitAll()
+                        .requestMatchers("/", "/api/health", "/oauth2/**", "/login/oauth2/**", "/error").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(handler -> handler

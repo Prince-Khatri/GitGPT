@@ -56,7 +56,7 @@ public class GeminiRuntime {
     }
 
     public UserAiSession forUser(Users user) {
-        geminiKeyService.requireAnyKey(user);
+        geminiKeyService.requireUserKey(user);
         String apiKey = geminiKeyService.requirePlaintext(user);
         String chatModel = catalog.resolveChat(user.getChatModel());
         String embeddingModel = catalog.resolveEmbedding(user.getEmbeddingModel());
@@ -79,7 +79,7 @@ public class GeminiRuntime {
     }
 
     private CachedModels createModels(String apiKey, String chatModel, String embeddingModel) {
-        Client client = Client.builder().apiKey(apiKey).build();
+        Client client = Client.builder().apiKey(apiKey).vertexAI(false).build();
         ChatModel chat = GoogleGenAiChatModel.builder()
                 .genAiClient(client)
                 .options(GoogleGenAiChatOptions.builder().model(chatModel).build())

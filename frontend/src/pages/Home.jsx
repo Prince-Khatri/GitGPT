@@ -357,7 +357,7 @@ export default function Home() {
 }
 
 function needsGeminiKey(user) {
-    return user && !user.hasGeminiKey && !user.hasServerGeminiKey;
+    return user && !user.hasGeminiKey;
 }
 
 function mergeRepos(current, incoming) {

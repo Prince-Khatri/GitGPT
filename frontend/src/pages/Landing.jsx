@@ -1,4 +1,5 @@
 import { Link, useSearchParams } from 'react-router-dom';
+import { githubLoginUrl } from '../config.js';
 
 const FILES = [
     { name: '.github', folder: true },
@@ -26,7 +27,7 @@ export default function Landing() {
                 <nav className="lp-links">
                     <Link to="/guide">How it works</Link>
                 </nav>
-                <a className="lp-signin" href="/oauth2/authorization/github">Sign in with GitHub</a>
+                <a className="lp-signin" href={githubLoginUrl()}>Sign in with GitHub</a>
             </header>
 
             <main id="top" className="lp-hero">
@@ -46,7 +47,7 @@ export default function Landing() {
                     </p>
                     {error && <p className="lp-error">{error}</p>}
                     <div className="lp-actions">
-                        <a className="lp-cta" href="/oauth2/authorization/github">
+                        <a className="lp-cta" href={githubLoginUrl()}>
                             <GitHubIcon />
                             Continue with GitHub
                             <span aria-hidden="true">→</span>

@@ -45,7 +45,7 @@ public class GeminiModelLister {
     }
 
     public List<GeminiModelOption> chatModelsFor(Users user) {
-        if (!geminiKeyService.hasAnyKey(user)) {
+        if (!geminiKeyService.hasUserKey(user)) {
             return catalog.chatModels();
         }
         try {
@@ -58,7 +58,7 @@ public class GeminiModelLister {
     }
 
     List<GeminiModelOption> fetchChatModels(String apiKey) {
-        Client client = Client.builder().apiKey(apiKey).build();
+        Client client = Client.builder().apiKey(apiKey).vertexAI(false).build();
         Map<String, GeminiModelOption> unique = new LinkedHashMap<>();
         try {
             for (Model model : client.models.list(ListModelsConfig.builder().queryBase(true).pageSize(100).build())) {

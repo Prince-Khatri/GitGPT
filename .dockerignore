@@ -1,0 +1,15 @@
+.git
+.cursor
+.idea
+.vscode
+target
+frontend
+**/.DS_Store
+**/.env
+**/.env.local
+.env.backend
+**/node_modules
+**/dist
+agent-transcripts
+*.iml
+HELP.md

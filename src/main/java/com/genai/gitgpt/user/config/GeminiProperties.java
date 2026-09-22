@@ -10,8 +10,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class GeminiProperties {
 
     /**
-     * Optional server-wide Gemini key ({@code GOOGLE_API_KEY}). Used only when the user
-     * has not stored their own key.
+     * Optional boot-only Gemini key ({@code GOOGLE_API_KEY}). Lets Spring AI start
+     * without a user session. Index and ask always use the signed-in user's Settings key.
      */
     private String serverApiKey = "";
 

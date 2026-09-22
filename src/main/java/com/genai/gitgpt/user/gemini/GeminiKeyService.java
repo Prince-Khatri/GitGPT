@@ -1,6 +1,7 @@
 package com.genai.gitgpt.user.gemini;
 
 import com.genai.gitgpt.exception.AppException;
+import com.genai.gitgpt.exception.GeminiErrors;
 import com.genai.gitgpt.user.config.GeminiProperties;
 import com.genai.gitgpt.user.config.SecurityProperties;
 import com.genai.gitgpt.user.models.Users;
@@ -45,22 +46,15 @@ public class GeminiKeyService {
         return StringUtils.hasText(geminiProperties.getServerApiKey());
     }
 
-    public boolean hasAnyKey(Users user) {
-        return hasUserKey(user) || hasServerKey();
-    }
-
-    public void requireAnyKey(Users user) {
-        if (!hasAnyKey(user)) {
-            throw new AppException("Add your Gemini API key in Settings before indexing or asking.");
+    public void requireUserKey(Users user) {
+        if (!hasUserKey(user)) {
+            throw new AppException(GeminiErrors.USER_KEY_REQUIRED);
         }
     }
 
     public String requirePlaintext(Users user) {
-        requireAnyKey(user);
-        if (hasUserKey(user)) {
-            return requireUserPlaintext(user);
-        }
-        return geminiProperties.getServerApiKey().trim();
+        requireUserKey(user);
+        return requireUserPlaintext(user);
     }
 
     public String requireUserPlaintext(Users user) {

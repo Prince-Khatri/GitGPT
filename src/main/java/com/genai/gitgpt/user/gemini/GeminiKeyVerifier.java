@@ -11,7 +11,7 @@ public class GeminiKeyVerifier {
 
     public void verify(String apiKey) {
         try {
-            Client client = Client.builder().apiKey(apiKey).build();
+            Client client = Client.builder().apiKey(apiKey).vertexAI(false).build();
             client.models.embedContent(
                     "gemini-embedding-001",
                     "ok",

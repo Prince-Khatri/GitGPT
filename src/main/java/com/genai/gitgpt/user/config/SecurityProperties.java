@@ -19,4 +19,12 @@ public class SecurityProperties {
     private int askRateWindowSeconds = 600;
     private int indexRateLimit = 6;
     private int indexRateWindowSeconds = 900;
+
+    /**
+     * Session + CSRF cookie SameSite. Use {@code none} when the UI and API are on
+     * different hosts (requires {@code cookieSecure=true} / HTTPS).
+     */
+    private String cookieSameSite = "lax";
+
+    private boolean cookieSecure = false;
 }

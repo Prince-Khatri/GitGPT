@@ -17,10 +17,21 @@ public class AnswerGenerator {
 
     private static final String SYSTEM = """
             You are GitGPT. Answer questions about one indexed GitHub repository snapshot.
-            Use ONLY the provided chunks. If they are missing or weak, say the indexed snapshot does not contain enough information.
-            Prior conversation is only to interpret follow-up questions (pronouns, "that class", "the same file").
+            Use ONLY the numbered chunks. If they are missing or weak, say the indexed snapshot does not contain enough information.
+            Prior conversation is only to interpret follow-ups (pronouns, "that class", "the same file").
             Do not treat prior answers as source of truth. Do not invent files, APIs, classes, or paths.
-            Cite evidence as [path:start-end].
+
+            Write GitHub-flavored markdown that is easy to scan:
+            - Start with one short opening sentence.
+            - Use bullet lists (`- `) or ### headings for files, workflows, features, or steps.
+            - Put paths and filenames in backticks (`README.md`, `.github/workflows/snake.yml`).
+            - Keep paragraphs short. Never glue several topics into one paragraph.
+
+            Citations:
+            - Cite ONLY as [1] or [1,2] using the chunk numbers.
+            - Put the citation right after the claim it supports.
+            - Never write [path:12-40], [ path.yml:1-2 ], or file paths inside brackets.
+
             Match the repository's real languages and folder layout.
             Never mention, quote, or request access tokens or secrets.
             """;
@@ -63,7 +74,8 @@ public class AnswerGenerator {
         }
         user.append("Intent: ").append(intent == null ? "" : intent).append('\n');
         user.append("Question: ").append(question).append("\n\n");
-        user.append("Indexed chunks:\n").append(packedContext);
+        user.append("Indexed chunks (cite as [1], [2], [1,2] only):\n").append(packedContext);
+        user.append("\n\nRemember: markdown bullets, backticks for paths, citations like [1] never [path:lines].");
         return new Prompt(List.of(
                 new SystemMessage(SYSTEM),
                 new UserMessage(user.toString())

@@ -1,10 +1,16 @@
+import { apiUrl } from './config.js';
+
+function apiFetch(path, options = {}) {
+    return fetch(apiUrl(path), { credentials: 'include', ...options });
+}
+
 async function csrfHeaders() {
     const headers = {};
     const cookie = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]+)/);
     if (cookie) {
         headers['X-XSRF-TOKEN'] = decodeURIComponent(cookie[1]);
     }
-    const response = await fetch('/api/csrf', { credentials: 'include' });
+    const response = await apiFetch('/api/csrf');
     if (!response.ok) {
         return headers;
     }
@@ -41,16 +47,15 @@ async function throwIfNotOk(response, fallback) {
 }
 
 export async function getGeminiSettings() {
-    const response = await fetch('/api/me/gemini', { credentials: 'include' });
+    const response = await apiFetch('/api/me/gemini');
     await throwIfNotOk(response, 'Could not load Gemini settings.');
     return response.json();
 }
 
 export async function saveGeminiSettings(payload) {
     const headers = await csrfHeaders();
-    const response = await fetch('/api/me/gemini', {
+    const response = await apiFetch('/api/me/gemini', {
         method: 'PUT',
-        credentials: 'include',
         headers: {
             ...headers,
             'Content-Type': 'application/json'
@@ -63,9 +68,8 @@ export async function saveGeminiSettings(payload) {
 
 export async function clearGeminiKey() {
     const headers = await csrfHeaders();
-    const response = await fetch('/api/me/gemini', {
+    const response = await apiFetch('/api/me/gemini', {
         method: 'DELETE',
-        credentials: 'include',
         headers
     });
     await throwIfNotOk(response, 'Could not remove the Gemini API key.');
@@ -73,7 +77,7 @@ export async function clearGeminiKey() {
 }
 
 export async function getMe() {
-    const response = await fetch('/api/me', { credentials: 'include' });
+    const response = await apiFetch('/api/me');
     if (response.status === 401) {
         return null;
     }
@@ -85,12 +89,12 @@ export async function getMe() {
 
 export async function logout() {
     const headers = await csrfHeaders();
-    await fetch('/logout', { method: 'POST', credentials: 'include', headers });
+    await apiFetch('/logout', { method: 'POST', headers });
     window.location.href = '/';
 }
 
 export async function getRepo(repoId) {
-    const response = await fetch('/api/repos/' + repoId, { credentials: 'include' });
+    const response = await apiFetch('/api/repos/' + repoId);
     if (!response.ok) {
         throw new Error('Could not load this repository.');
     }
@@ -98,7 +102,7 @@ export async function getRepo(repoId) {
 }
 
 export async function getCachedRepos() {
-    const response = await fetch('/api/repos', { credentials: 'include' });
+    const response = await apiFetch('/api/repos');
     if (!response.ok) {
         throw new Error('Could not load cached repositories.');
     }
@@ -106,14 +110,14 @@ export async function getCachedRepos() {
 }
 
 export async function getGithubRepos(page) {
-    const response = await fetch('/api/repos/github?page=' + page, { credentials: 'include' });
+    const response = await apiFetch('/api/repos/github?page=' + page);
     await throwIfNotOk(response, 'Could not load GitHub repositories.');
     return response.json();
 }
 
 export async function getChats(repoId) {
     const path = repoId ? '/api/repos/' + repoId + '/chats' : '/api/chats';
-    const response = await fetch(path, { credentials: 'include' });
+    const response = await apiFetch(path);
     if (!response.ok) {
         throw new Error('Could not load chat history.');
     }
@@ -122,9 +126,8 @@ export async function getChats(repoId) {
 
 export async function startChat(repoId) {
     const headers = await csrfHeaders();
-    const response = await fetch('/api/repos/' + repoId + '/chats', {
+    const response = await apiFetch('/api/repos/' + repoId + '/chats', {
         method: 'POST',
-        credentials: 'include',
         headers
     });
     if (!response.ok) {
@@ -135,7 +138,7 @@ export async function startChat(repoId) {
 
 export async function getThread(repoId, sessionId) {
     const query = sessionId ? '?sessionId=' + sessionId : '';
-    const response = await fetch('/api/repos/' + repoId + '/chat' + query, { credentials: 'include' });
+    const response = await apiFetch('/api/repos/' + repoId + '/chat' + query);
     if (!response.ok) {
         throw new Error('Could not load this conversation.');
     }
@@ -144,9 +147,8 @@ export async function getThread(repoId, sessionId) {
 
 export async function startIndex(repoId) {
     const headers = await csrfHeaders();
-    const response = await fetch('/api/repos/' + repoId + '/index', {
+    const response = await apiFetch('/api/repos/' + repoId + '/index', {
         method: 'POST',
-        credentials: 'include',
         headers
     });
     await throwIfNotOk(response, 'Could not start indexing.');
@@ -155,9 +157,8 @@ export async function startIndex(repoId) {
 
 export async function cancelIndex(repoId) {
     const headers = await csrfHeaders();
-    const response = await fetch('/api/repos/' + repoId + '/index/cancel', {
+    const response = await apiFetch('/api/repos/' + repoId + '/index/cancel', {
         method: 'POST',
-        credentials: 'include',
         headers
     });
     await throwIfNotOk(response, 'Could not cancel indexing.');
@@ -165,7 +166,7 @@ export async function cancelIndex(repoId) {
 }
 
 export async function getIndexStatus(repoId) {
-    const response = await fetch('/api/repos/' + repoId + '/index', { credentials: 'include' });
+    const response = await apiFetch('/api/repos/' + repoId + '/index');
     await throwIfNotOk(response, 'Could not read index status.');
     return response.json();
 }
@@ -176,9 +177,8 @@ export async function streamAsk(repoId, sessionId, question, onEvent) {
     const timer = window.setTimeout(() => controller.abort(), 95_000);
     let response;
     try {
-        response = await fetch('/api/repos/' + repoId + '/ask/stream', {
+        response = await apiFetch('/api/repos/' + repoId + '/ask/stream', {
             method: 'POST',
-            credentials: 'include',
             signal: controller.signal,
             headers: {
                 ...headers,

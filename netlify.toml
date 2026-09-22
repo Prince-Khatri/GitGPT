@@ -1,0 +1,36 @@
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  VITE_API_BASE_URL = "https://giptgpt-ai-backend.onrender.com"
+
+[[redirects]]
+  from = "/oauth2/*"
+  to = "https://giptgpt-ai-backend.onrender.com/oauth2/:splat"
+  status = 302
+  force = true
+
+[[redirects]]
+  from = "/login/*"
+  to = "https://giptgpt-ai-backend.onrender.com/login/:splat"
+  status = 302
+  force = true
+
+[[redirects]]
+  from = "/logout"
+  to = "https://giptgpt-ai-backend.onrender.com/logout"
+  status = 302
+  force = true
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://giptgpt-ai-backend.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

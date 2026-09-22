@@ -21,4 +21,14 @@ class GeminiErrorsTest {
         assertFalse(wrapped instanceof RateLimitException);
         assertTrue(wrapped.getMessage().contains("not available"));
     }
+
+    @Test
+    void mapsUnsupportedAccessTokenToUserKeyMessage() {
+        AppException wrapped = GeminiErrors.wrapEmbed(new RuntimeException(
+                "401 ACCESS_TOKEN_TYPE_UNSUPPORTED invalid authentication credentials"
+        ));
+        assertTrue(GeminiErrors.isAuthFailure(wrapped.getCause()));
+        assertTrue(wrapped.getMessage().contains("Settings"));
+        assertFalse(wrapped.getMessage().contains("ACCESS_TOKEN"));
+    }
 }

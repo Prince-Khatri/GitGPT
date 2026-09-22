@@ -80,6 +80,52 @@ Open [http://localhost:5173](http://localhost:5173). The API is [http://localhos
 ./mvnw test
 ```
 
+## Docker (host it)
+
+Frontend (nginx) and backend (Spring) run as containers. Nginx serves the React app and proxies `/api`, `/oauth2`, `/login`, and `/logout` to Spring, so the session cookie stays on one public origin — same pattern as local Vite.
+
+```bash
+cp .env.example .env
+cp .env.backend.example .env.backend
+cp frontend/.env.example frontend/.env
+# fill GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITGPT_TOKEN_ENCRYPTION_KEY
+# set DB_PASSWORD and POSTGRES_PASSWORD to the same value
+# FRONTEND_ORIGIN = public URL, no trailing slash
+docker compose up --build
+```
+
+Open [http://localhost](http://localhost) (`HTTP_PORT` in `.env`, default 80).
+
+| File | Used by |
+|---|---|
+| `.env` | Compose port mapping (`HTTP_PORT`) |
+| `.env.backend` | Postgres + Spring (DB, GitHub OAuth, CORS origin, encryption key) |
+| `frontend/.env` | Browser API URL (`GITGPT_API_BASE_URL`), Vite proxy, nginx `BACKEND_UPSTREAM` |
+
+Point the GitHub OAuth App at that origin:
+
+- Homepage URL: `{FRONTEND_ORIGIN}`
+- Authorization callback URL: `{FRONTEND_ORIGIN}/login/oauth2/code/github`
+
+Leave `GITGPT_API_BASE_URL` empty when nginx (or Vite) proxies `/api` on the same origin.
+
+If you host the UI and API on **different URLs**, set:
+
+```
+# frontend/.env
+GITGPT_API_BASE_URL=https://api.your.domain
+
+# .env.backend
+FRONTEND_ORIGIN=https://ui.your.domain
+GITGPT_OAUTH_REDIRECT_URI=https://api.your.domain/login/oauth2/code/github
+COOKIE_SAME_SITE=none
+COOKIE_SECURE=true
+```
+
+`GITGPT_API_BASE_URL` is written into `/config.js` when the frontend container starts, so you can change the API host without rebuilding the image.
+
+For HTTPS in front of a single compose stack, set `FRONTEND_ORIGIN=https://your.domain` and keep `GITGPT_API_BASE_URL` empty. Users still add their own Gemini key in Settings after sign-in.
+
 ## Ask pipeline
 
 1. If the question already contains identifiers (`UserService`, `Foo.java`), skip the LLM planner.

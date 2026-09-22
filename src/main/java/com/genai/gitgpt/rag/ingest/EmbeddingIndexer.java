@@ -1,6 +1,7 @@
 package com.genai.gitgpt.rag.ingest;
 
 import com.genai.gitgpt.exception.AppException;
+import com.genai.gitgpt.exception.GeminiErrors;
 import com.genai.gitgpt.rag.config.IndexProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -59,7 +60,7 @@ public class EmbeddingIndexer {
                 return;
             } catch (Exception ex) {
                 if (attempt == attempts || !retryable(ex)) {
-                    throw new AppException("Failed to embed repository chunks: " + ex.getMessage(), ex);
+                    throw GeminiErrors.wrapEmbed(ex);
                 }
                 long sleepMs = 1000L * (1L << (attempt - 1));
                 log.warn("Embedding batch failed for repo {} (attempt {}/{}). Retrying in {} ms",
