@@ -1,7 +1,62 @@
 import { apiUrl } from './config.js';
 
+const SESSION_KEY = 'gitgpt.session';
+
+function sessionToken() {
+    try {
+        return window.localStorage.getItem(SESSION_KEY) || '';
+    } catch {
+        return '';
+    }
+}
+
+function storeSessionToken(token) {
+    try {
+        if (token) {
+            window.localStorage.setItem(SESSION_KEY, token);
+        } else {
+            window.localStorage.removeItem(SESSION_KEY);
+        }
+    } catch {
+        // private mode
+    }
+}
+
+export function clearSessionToken() {
+    storeSessionToken('');
+}
+
 function apiFetch(path, options = {}) {
-    return fetch(apiUrl(path), { credentials: 'include', ...options });
+    const headers = { ...(options.headers || {}) };
+    const token = sessionToken();
+    if (token && !headers.Authorization) {
+        headers.Authorization = 'Bearer ' + token;
+    }
+    return fetch(apiUrl(path), { credentials: 'include', ...options, headers });
+}
+
+export async function completeLoginIfNeeded() {
+    const params = new URLSearchParams(window.location.search);
+    const ticket = params.get('ticket');
+    if (!ticket) {
+        return;
+    }
+    const response = await apiFetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticket })
+    });
+    if (!response.ok) {
+        throw new Error('Sign-in did not complete. Try GitHub again.');
+    }
+    const data = await response.json();
+    if (!data.token) {
+        throw new Error('Sign-in did not complete. Try GitHub again.');
+    }
+    storeSessionToken(data.token);
+    params.delete('ticket');
+    const query = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash);
 }
 
 async function csrfHeaders() {
@@ -88,9 +143,13 @@ export async function getMe() {
 }
 
 export async function logout() {
-    const headers = await csrfHeaders();
-    await apiFetch('/logout', { method: 'POST', headers });
-    window.location.href = '/';
+    try {
+        const headers = await csrfHeaders();
+        await apiFetch('/logout', { method: 'POST', headers });
+    } finally {
+        clearSessionToken();
+        window.location.href = '/';
+    }
 }
 
 export async function getRepo(repoId) {

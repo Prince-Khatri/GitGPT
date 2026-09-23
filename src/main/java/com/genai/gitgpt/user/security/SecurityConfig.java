@@ -13,8 +13,10 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.oauth2.core.user.OAuth2User;
+import org.springframework.http.HttpHeaders;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
@@ -37,14 +39,16 @@ public class SecurityConfig {
     private final GeminiRuntime geminiRuntime;
     private final UiProperties uiProperties;
     private final SecurityProperties securityProperties;
+    private final BearerAuthFilter bearerAuthFilter;
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         CookieCsrfTokenRepository csrfTokens = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        String frontendOrigin = uiProperties.getFrontendOrigin();
         csrfTokens.setCookieCustomizer(cookie -> {
             cookie.path("/");
-            cookie.sameSite(securityProperties.getCookieSameSite());
-            cookie.secure(securityProperties.isCookieSecure());
+            cookie.sameSite(securityProperties.effectiveCookieSameSite(frontendOrigin));
+            cookie.secure(securityProperties.effectiveCookieSecure(frontendOrigin));
         });
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
 
@@ -53,9 +57,14 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokens)
                         .csrfTokenRequestHandler(csrfHandler)
+                        .ignoringRequestMatchers("/api/auth/session")
+                        .ignoringRequestMatchers(request -> {
+                            String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+                            return header != null && header.regionMatches(true, 0, "Bearer ", 0, 7);
+                        })
                 )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/api/health", "/oauth2/**", "/login/oauth2/**", "/error").permitAll()
+                        .requestMatchers("/", "/api/health", "/api/auth/session", "/oauth2/**", "/login/oauth2/**", "/error").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(handler -> handler
@@ -83,7 +92,8 @@ public class SecurityConfig {
                         .invalidateHttpSession(true)
                         .clearAuthentication(true)
                         .deleteCookies("JSESSIONID")
-                );
+                )
+                .addFilterBefore(bearerAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
@@ -92,7 +102,7 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(List.of(uiProperties.getFrontendOrigin()));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-XSRF-TOKEN", "X-Requested-With", "*"));
         config.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);

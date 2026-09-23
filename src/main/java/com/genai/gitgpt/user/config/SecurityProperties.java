@@ -27,4 +27,34 @@ public class SecurityProperties {
     private String cookieSameSite = "lax";
 
     private boolean cookieSecure = false;
+
+    /**
+     * Netlify + Render (or any remote HTTPS UI) must send the session cookie on
+     * cross-site {@code fetch}. Browsers drop {@code SameSite=None} unless Secure.
+     * Local {@code http://localhost} keeps Lax.
+     */
+    public String effectiveCookieSameSite(String frontendOrigin) {
+        if (requiresCrossSiteCookies(frontendOrigin)) {
+            return "none";
+        }
+        if (cookieSameSite == null || cookieSameSite.isBlank()) {
+            return "lax";
+        }
+        return cookieSameSite;
+    }
+
+    public boolean effectiveCookieSecure(String frontendOrigin) {
+        return requiresCrossSiteCookies(frontendOrigin) || cookieSecure;
+    }
+
+    static boolean requiresCrossSiteCookies(String frontendOrigin) {
+        if (frontendOrigin == null || frontendOrigin.isBlank()) {
+            return false;
+        }
+        String origin = frontendOrigin.trim().toLowerCase();
+        if (!origin.startsWith("https://")) {
+            return false;
+        }
+        return !origin.contains("localhost") && !origin.contains("127.0.0.1");
+    }
 }
