@@ -33,6 +33,20 @@ class GeminiModelListerTest {
         assertTrue(embed.isEmpty());
     }
 
+    @Test
+    void restListKeepsGenerateContentModels() {
+        List<GeminiModelOption> models = lister.parseRestModels("""
+                {"models":[
+                  {"name":"models/gemini-2.5-flash","displayName":"Gemini 2.5 Flash",
+                   "supportedGenerationMethods":["generateContent","countTokens"]},
+                  {"name":"models/gemini-embedding-001","supportedGenerationMethods":["embedContent"]},
+                  {"name":"models/gemini-3.6-flash-image","supportedGenerationMethods":["generateContent"]}
+                ]}
+                """);
+        assertEquals(1, models.size());
+        assertEquals("gemini-2.5-flash", models.get(0).id());
+    }
+
     private static Model model(String name, String displayName, List<String> actions) {
         return Model.builder()
                 .name(name)

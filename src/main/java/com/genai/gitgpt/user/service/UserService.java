@@ -42,14 +42,12 @@ public class UserService {
         if (githubId == null || username == null) {
             throw new AppException("GitHub profile is missing an id or login, so the user cannot be saved.");
         }
-        String email = resolveEmail(oauth2User, accessToken, githubId, username);
-        String tokenScope = scopes == null || scopes.isEmpty() ? null : String.join(",", scopes);
-
         Users user = userRepository.findByGithubId(githubId)
                 .orElseGet(() -> Users.builder()
                         .githubId(githubId)
-                        .email(email)
                         .build());
+        String email = resolveEmail(oauth2User, accessToken, githubId, username, scopes, user);
+        String tokenScope = scopes == null || scopes.isEmpty() ? null : String.join(",", scopes);
 
         user.setGithubId(githubId);
         user.setEmail(email);
@@ -75,40 +73,68 @@ public class UserService {
         return userRepository.findByGithubId(githubId);
     }
 
-    private String resolveEmail(OAuth2User oauth2User, String accessToken, String githubId, String username) {
+    private String resolveEmail(
+            OAuth2User oauth2User,
+            String accessToken,
+            String githubId,
+            String username,
+            Set<String> scopes,
+            Users existing
+    ) {
         String publicEmail = OAuthAttributes.asString(oauth2User, "email");
         if (hasText(publicEmail)) {
             return publicEmail;
         }
 
-        try {
-            List<Map<String, Object>> emails = restClient.get()
-                    .uri("https://api.github.com/user/emails")
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
-                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
-                    .header("X-GitHub-Api-Version", "2022-11-28")
-                    .retrieve()
-                    .body(EMAILS_TYPE);
+        if (hasEmailScope(scopes)) {
+            try {
+                List<Map<String, Object>> emails = restClient.get()
+                        .uri("https://api.github.com/user/emails")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                        .header("X-GitHub-Api-Version", "2022-11-28")
+                        .retrieve()
+                        .body(EMAILS_TYPE);
 
-            if (emails != null) {
-                String primaryVerified = pickEmail(emails, true, true);
-                if (hasText(primaryVerified)) {
-                    return primaryVerified;
+                if (emails != null) {
+                    String primaryVerified = pickEmail(emails, true, true);
+                    if (hasText(primaryVerified)) {
+                        return primaryVerified;
+                    }
+                    String verified = pickEmail(emails, false, true);
+                    if (hasText(verified)) {
+                        return verified;
+                    }
+                    String any = pickEmail(emails, false, false);
+                    if (hasText(any)) {
+                        return any;
+                    }
                 }
-                String verified = pickEmail(emails, false, true);
-                if (hasText(verified)) {
-                    return verified;
-                }
-                String any = pickEmail(emails, false, false);
-                if (hasText(any)) {
-                    return any;
+            } catch (Exception ex) {
+                if (isEmailForbidden(ex)) {
+                    log.info("GitHub did not share emails for {}. Login continues without that list.", username);
+                } else {
+                    log.warn("Could not load GitHub emails for user {}: {}", username, ex.getMessage());
                 }
             }
-        } catch (Exception ex) {
-            log.warn("Could not load GitHub emails for user {}: {}", username, ex.getMessage());
         }
 
+        if (existing != null && hasText(existing.getEmail())) {
+            return existing.getEmail();
+        }
         return githubId + "+" + username + "@users.noreply.github.com";
+    }
+
+    private static boolean hasEmailScope(Set<String> scopes) {
+        if (scopes == null || scopes.isEmpty()) {
+            return true;
+        }
+        return scopes.stream().anyMatch(scope -> scope != null && scope.contains("user:email"));
+    }
+
+    private static boolean isEmailForbidden(Exception ex) {
+        String text = String.valueOf(ex.getMessage()).toLowerCase();
+        return text.contains("403") || text.contains("forbidden") || text.contains("not accessible by integration");
     }
 
     private String pickEmail(List<Map<String, Object>> emails, boolean requirePrimary, boolean requireVerified) {

@@ -1,5 +1,8 @@
 package com.genai.gitgpt.user.gemini;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.genai.gitgpt.exception.SecretRedactor;
 import com.genai.gitgpt.user.models.Users;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -7,8 +10,10 @@ import com.google.genai.Client;
 import com.google.genai.types.ListModelsConfig;
 import com.google.genai.types.Model;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -34,6 +39,8 @@ public class GeminiModelLister {
     private final GeminiKeyService geminiKeyService;
     private final GeminiModelCatalog catalog;
     private final Cache<String, List<GeminiModelOption>> byKey;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final RestClient restClient = RestClient.create();
 
     public GeminiModelLister(GeminiKeyService geminiKeyService, GeminiModelCatalog catalog) {
         this.geminiKeyService = geminiKeyService;
@@ -52,12 +59,25 @@ public class GeminiModelLister {
             String apiKey = geminiKeyService.requirePlaintext(user);
             return byKey.get(fingerprint(apiKey), ignored -> fetchChatModels(apiKey));
         } catch (Exception ex) {
-            log.warn("Could not list Gemini models for this key; using the built-in catalog.");
+            log.warn("Could not list Gemini models for this key; using the built-in catalog. {}",
+                    SecretRedactor.redact(ex.getMessage()));
             return catalog.chatModels();
         }
     }
 
     List<GeminiModelOption> fetchChatModels(String apiKey) {
+        try {
+            List<GeminiModelOption> fromApi = fetchViaRest(apiKey);
+            if (!fromApi.isEmpty()) {
+                return fromApi;
+            }
+        } catch (Exception ex) {
+            log.warn("Gemini REST model list failed: {}", SecretRedactor.redact(ex.getMessage()));
+        }
+        return fetchViaSdk(apiKey);
+    }
+
+    private List<GeminiModelOption> fetchViaSdk(String apiKey) {
         Client client = Client.builder().apiKey(apiKey).vertexAI(false).build();
         Map<String, GeminiModelOption> unique = new LinkedHashMap<>();
         try {
@@ -68,13 +88,73 @@ public class GeminiModelLister {
                 }
             }
         } catch (Exception ex) {
-            log.warn("Gemini model list failed; using the built-in catalog.");
+            log.warn("Gemini SDK model list failed: {}", SecretRedactor.redact(ex.getMessage()));
             return catalog.chatModels();
         }
         if (unique.isEmpty()) {
             return catalog.chatModels();
         }
         return sort(List.copyOf(unique.values()));
+    }
+
+    private List<GeminiModelOption> fetchViaRest(String apiKey) {
+        String body = restClient.get()
+                .uri("https://generativelanguage.googleapis.com/v1beta/models?pageSize=100")
+                .header(HttpHeaders.ACCEPT, "application/json")
+                .header("x-goog-api-key", apiKey)
+                .retrieve()
+                .body(String.class);
+        return parseRestModels(body);
+    }
+
+    List<GeminiModelOption> parseRestModels(String json) {
+        try {
+            JsonNode models = objectMapper.readTree(json == null ? "{}" : json).path("models");
+            Map<String, GeminiModelOption> unique = new LinkedHashMap<>();
+            if (models.isArray()) {
+                for (JsonNode model : models) {
+                    if (!supportsGenerate(model)) {
+                        continue;
+                    }
+                    String id = GeminiModelCatalog.normalizeId(model.path("name").asText(""));
+                    if (!GeminiModelCatalog.isChatModelId(id)) {
+                        continue;
+                    }
+                    unique.putIfAbsent(id, catalog.knownChat(id).orElseGet(() -> new GeminiModelOption(
+                            id,
+                            textOr(model, "displayName", GeminiModelCatalog.prettyLabel(id)),
+                            textOr(model, "description", "Available on your Gemini API key.")
+                    )));
+                    if (unique.size() >= MAX_CHAT_OPTIONS) {
+                        break;
+                    }
+                }
+            }
+            if (unique.isEmpty()) {
+                return List.of();
+            }
+            return sort(List.copyOf(unique.values()));
+        } catch (Exception ex) {
+            throw new IllegalStateException("Could not parse Gemini model list.");
+        }
+    }
+
+    private static boolean supportsGenerate(JsonNode model) {
+        JsonNode methods = model.path("supportedGenerationMethods");
+        if (!methods.isArray() || methods.isEmpty()) {
+            return true;
+        }
+        for (JsonNode method : methods) {
+            if (canGenerate(method.asText(""))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String textOr(JsonNode model, String field, String fallback) {
+        String value = model.path(field).asText("");
+        return StringUtils.hasText(value) ? value : fallback;
     }
 
     Optional<GeminiModelOption> toChatOption(Model model) {
