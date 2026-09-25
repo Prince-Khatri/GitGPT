@@ -5,10 +5,7 @@ function trimSlash(value) {
 /** Public API origin. Empty means same origin (Vite proxy, nginx, or Netlify redirects). */
 export function apiBase() {
     const runtime = typeof window !== 'undefined' ? trimSlash(window.GITGPT_API_BASE_URL) : '';
-    if (runtime) {
-        return runtime;
-    }
-    return trimSlash(import.meta.env.VITE_API_BASE_URL);
+    return runtime;
 }
 
 export function apiUrl(path) {

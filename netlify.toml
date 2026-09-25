@@ -3,8 +3,8 @@
   command = "npm run build"
   publish = "dist"
 
-# Proxy rules are written to dist/_redirects from VITE_API_BASE_URL at build time.
-# Set that variable in the Netlify UI. Do not hardcode it here; this file would override the UI.
+# Proxy rules are written to dist/_redirects from BACKEND_UPSTREAM at build time.
+# Set it to the EC2 HTTP origin in Netlify. The browser only uses this Netlify HTTPS origin.
 
 [[redirects]]
   from = "/*"

@@ -126,6 +126,25 @@ COOKIE_SECURE=true
 
 For HTTPS in front of a single compose stack, set `FRONTEND_ORIGIN=https://your.domain` and keep `GITGPT_API_BASE_URL` empty. Users still add their own Gemini key in Settings after sign-in.
 
+### Netlify UI with an HTTP EC2 backend
+
+Keep the browser on Netlify's HTTPS origin and let Netlify proxy to EC2. Set this in Netlify:
+
+```bash
+BACKEND_UPSTREAM=http://your-ec2-host
+```
+
+Do not set `VITE_API_BASE_URL`; the EC2 address must not be bundled into the browser app. Set the backend environment to:
+
+```bash
+FRONTEND_ORIGIN=https://your-site.netlify.app
+GITGPT_OAUTH_REDIRECT_URI=https://your-site.netlify.app/login/oauth2/code/github
+COOKIE_SAME_SITE=none
+COOKIE_SECURE=true
+```
+
+Use the same Netlify callback URL in the GitHub OAuth App. Recreate the backend container after changing its environment.
+
 ## Ask pipeline
 
 1. If the question already contains identifiers (`UserService`, `Foo.java`), skip the LLM planner.
